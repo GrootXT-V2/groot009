@@ -22,7 +22,13 @@ def _bool(name: str, default: bool) -> bool:
 @dataclass
 class Config:
     name: str = field(default_factory=lambda: os.getenv("GROOT_NAME", "Groot"))
+    # "auto" uses Claude if ANTHROPIC_API_KEY is set, otherwise free local Ollama
+    brain: str = field(default_factory=lambda: os.getenv("GROOT_BRAIN", "auto").lower())
     model: str = field(default_factory=lambda: os.getenv("GROOT_MODEL", "claude-sonnet-5-5"))
+    ollama_model: str = field(default_factory=lambda: os.getenv("GROOT_OLLAMA_MODEL", "llama3.2"))
+    ollama_url: str = field(
+        default_factory=lambda: os.getenv("GROOT_OLLAMA_URL", "http://localhost:11434")
+    )
     wake_words: tuple = field(
         default_factory=lambda: tuple(
             w.strip().lower()

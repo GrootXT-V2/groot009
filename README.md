@@ -1,6 +1,7 @@
 # 🌱 Groot — your personal voice assistant
 
-Talk to Groot and it talks back. It uses Claude as its brain and can tell
+Talk to Groot and it talks back. It can run **100% free** on your own computer
+(using [Ollama](https://ollama.com)), or use Claude as its brain. It can tell
 the time, check the weather, open websites, search the web, set timers, and
 keep notes for you.
 
@@ -18,10 +19,24 @@ python -m venv .venv
 # Windows:  .venv\Scripts\activate
 # Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # then put your Anthropic API key in .env
+cp .env.example .env
 ```
 
-Get an API key at <https://console.anthropic.com>.
+### Choose a brain
+
+**Free (recommended to start):** runs on your computer, no API key, no cost.
+1. Download and install Ollama from <https://ollama.com>, then open the Ollama app.
+2. Download a model (about 2 GB, one time):
+   ```bash
+   ollama pull llama3.2
+   ```
+That's it — with no API key in `.env`, Groot uses Ollama automatically.
+On older or low-memory computers, try the smaller `llama3.2:1b`
+(set `GROOT_OLLAMA_MODEL=llama3.2:1b` in `.env`). For smarter answers on a
+powerful machine, try `qwen2.5:7b`.
+
+**Claude (paid, smartest):** put your API key from
+<https://console.anthropic.com> in `.env` as `ANTHROPIC_API_KEY=...`.
 
 **If `pyaudio` fails to install:**
 - **Windows:** `pip install pipwin && pipwin install pyaudio`
@@ -52,7 +67,9 @@ Things to try:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | **Required.** Your Claude API key |
+| `GROOT_BRAIN` | `auto` | `auto`, `ollama` (free, local) or `claude` (paid) |
+| `GROOT_OLLAMA_MODEL` | `llama3.2` | Which Ollama model to use |
+| `ANTHROPIC_API_KEY` | — | Claude API key (only for the Claude brain) |
 | `GROOT_NAME` | `Groot` | Assistant's name |
 | `GROOT_MODEL` | `claude-sonnet-5-5` | Claude model to use |
 | `GROOT_WAKE_WORDS` | `hey groot,groot` | Comma-separated wake phrases |
@@ -70,7 +87,7 @@ Notes are saved in `~/.groot/notes.json`.
 groot/
   __main__.py   start-up and command-line options
   assistant.py  main loop: wake word → listen → think → speak
-  brain.py      talks to Claude, runs skills it asks for
+  brain.py      talks to Claude or Ollama, runs skills it asks for
   skills.py     what Groot can do (add your own here!)
   voice.py      microphone (speech-to-text) and speaker (text-to-speech)
   config.py     settings from .env
@@ -82,4 +99,4 @@ tests/          run with: pip install pytest && pytest
 1. Add a method to the `Skills` class in `groot/skills.py` that returns a string.
 2. Add a matching entry to the `TOOLS` list (name, description, input schema).
 
-Claude will automatically decide when to use it.
+The brain (Claude or Ollama) will automatically decide when to use it.

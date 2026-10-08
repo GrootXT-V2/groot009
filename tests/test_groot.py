@@ -55,3 +55,22 @@ def test_assistant_wake_word_flow(tmp_path):
     Assistant(config, brain, said.append, lambda timeout=None: next(heard)).run()
     # random chatter ignored; wake word -> "Yes?" -> command answered; then waits for wake word again
     assert said[1:3] == ["Yes?", "echo: tell me a joke"]
+
+
+def test_ollama_brain_uses_tools(tmp_path):
+    from groot.brain import OllamaBrain
+
+    calls = []
+
+    def fake_post(url, payload):
+        calls.append(payload)
+        if len(calls) == 1:
+            return {"message": {"role": "assistant", "content": "",
+                                "tool_calls": [{"function": {"name": "get_time", "arguments": {}}}]}}
+        tool_msg = payload["messages"][-1]
+        assert tool_msg["role"] == "tool" and tool_msg["content"].startswith("It is")
+        return {"message": {"role": "assistant", "content": "It's noon."}}
+
+    brain = OllamaBrain("llama3.2", Skills(tmp_path), post=fake_post)
+    assert brain.reply("what time is it") == "It's noon."
+    assert calls[0]["messages"][0]["role"] == "system"
