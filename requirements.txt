@@ -1,0 +1,8 @@
+anthropic>=0.40
+SpeechRecognition>=3.10
+pyaudio>=0.2.14
+pyttsx3>=2.90
+python-dotenv>=1.0
+
+# Optional: offline speech recognition (set GROOT_STT=whisper)
+# openai-whisper
