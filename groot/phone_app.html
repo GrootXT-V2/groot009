@@ -103,7 +103,11 @@
   const canListen = !!SR && window.isSecureContext;
   let data = null, mode = "idle", talking = false, recognizer = null, lastActive = performance.now();
   let anim = "idle", animStart = performance.now(), activityUntil = 0;
-  let x = 0, targetX = null, faceRight = false, nextWalk = performance.now() + 6000;
+  // the same routine as on the Mac: sleep curled up in a corner, wake when called,
+  // and walk back to the corner to sleep when the conversation is over
+  let routine = "sleep", corner = "right", awakeSince = 0, nextWander = 0;
+  let x = 0, targetX = null, faceRight = false;
+  const AWAKE_BEFORE_SLEEP = 20000;  // ms sitting awake before heading back to bed
 
   function setStatus(text, listening) {
     $("status").textContent = text;
@@ -192,27 +196,43 @@
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssW * data.H / data.W * dpr);
     canvas.style.height = (cssW * data.H / data.W) + "px";
-    if (targetX === null) x = (window.innerWidth - cssW) / 2;
+    if (routine === "sleep") x = cornerX(corner);
+    else x = Math.max(cornerX("left"), Math.min(cornerX("right"), x));
+  }
+
+  function foxWidth() { return canvas.getBoundingClientRect().width; }
+  function cornerX(side) { return side === "left" ? -foxWidth() * 0.08 : window.innerWidth - foxWidth() * 0.92; }
+  function nearestCorner() {
+    return Math.abs(x - cornerX("left")) < Math.abs(x - cornerX("right")) ? "left" : "right";
+  }
+  function wakeUp() {
+    if (routine !== "awake") { routine = "awake"; targetX = null; }
+    awakeSince = performance.now();
   }
 
   function play(name) { if (anim !== name) { anim = name; animStart = performance.now(); } }
 
   // ---- the buddy's life: sit, wander, nap, and act out what it's asked
   function behave(now, dt) {
-    const cssW = canvas.getBoundingClientRect().width;
     if (now < activityUntil) return;
-    if (mode === "listening") return play("listening");
-    if (mode === "thinking") return play("thinking");
-    if (mode === "speaking") return play("speaking");
-    if (targetX !== null) {
-      const dx = targetX - x, speed = 70 * dt;
-      if (Math.abs(dx) <= speed) { x = targetX; targetX = null; nextWalk = now + 8000 + Math.random() * 9000; }
-      else { x += Math.sign(dx) * speed; faceRight = dx > 0; return play("walk"); }
+    if (mode !== "idle") { wakeUp(); return play(mode); }  // listening, thinking or speaking
+    if (routine === "sleep") {
+      x = cornerX(corner); faceRight = corner === "left";  // face into the screen from the corner
+      return play("sleep");
     }
-    if (now - lastActive > 90000) return play("sleep");
-    if (now > nextWalk) {
-      targetX = Math.max(8, Math.min(window.innerWidth - cssW - 8, Math.random() * (window.innerWidth - cssW)));
-      if (Math.abs(targetX - x) < 30) { targetX = null; nextWalk = now + 5000; }
+    if (targetX !== null) {  // walking: back to bed, or just wandering
+      const dx = targetX - x, speed = 80 * dt;
+      if (Math.abs(dx) > speed) { x += Math.sign(dx) * speed; faceRight = dx > 0; return play("walk"); }
+      x = targetX; targetX = null;
+      if (routine === "return") { routine = "sleep"; setStatus("Tap me to wake me up"); return play("sleep"); }
+    }
+    if (now - awakeSince > AWAKE_BEFORE_SLEEP) {  // nothing to do: walk to the nearest corner and sleep
+      corner = nearestCorner(); routine = "return"; targetX = cornerX(corner);
+      return play("walk");
+    }
+    if (now > nextWander) {  // stretch the legs now and then
+      nextWander = now + 7000 + Math.random() * 8000;
+      if (Math.random() < 0.5) targetX = cornerX("left") + Math.random() * (cornerX("right") - cornerX("left"));
     }
     play("idle");
   }
@@ -247,7 +267,7 @@
     if (recognizer) { try { recognizer.abort(); } catch (e) {} recognizer = null; }
     player.pause();
     if (window.speechSynthesis) speechSynthesis.cancel();
-    mode = "idle"; lastActive = performance.now();
+    mode = "idle"; lastActive = performance.now(); wakeUp();
     setStatus(message || "Tap me to talk");
   }
 
@@ -295,6 +315,8 @@
     if (!activity || activity === "stop") return;
     const name = { football: "dance", butterfly: "dance", run: "walk" }[activity] || activity;
     if (!data.anims[name]) return;
+    if (activity === "sleep") { corner = nearestCorner(); routine = "return"; targetX = cornerX(corner); return; }
+    wakeUp();
     play(name);
     activityUntil = performance.now() + (ACTIVITY_SECONDS[activity] || 3) * 1000;
   }
@@ -326,6 +348,7 @@
     unlockAudio();
     if (talking || mode !== "idle") return stopTalking();
     talking = true; lastActive = performance.now();
+    wakeUp();  // sit up from sleep (or stop walking) and listen
     listen();
   }
 
@@ -357,7 +380,7 @@
     if (!canListen) $("hint").textContent = window.isSecureContext
       ? "This browser can't listen — type, or use your keyboard's 🎤."
       : "On this link, use your keyboard's 🎤 to talk. Open the https link for tap-to-talk.";
-    setStatus("Tap me to talk");
+    setStatus("Tap me to wake me up");
     requestAnimationFrame(frame);
   }
   start();
