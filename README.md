@@ -93,8 +93,7 @@ While it's playing, Groot listens for "Hey Groot" using the same speech
 recognition as the rest of the app (Google's free service by default, or
 offline Whisper with `GROOT_STT=whisper`).
 
-If it says it needs Tkinter: `brew install python-tk`, then delete the `.venv`
-folder and set it up again.
+The robot window uses Qt (PySide6), installed by `pip install -r requirements.txt`.
 
 ## Settings (`.env`)
 
