@@ -866,3 +866,94 @@ def test_prompt_forbids_laugh_sounds():
     from groot.brain import SYSTEM_PROMPT
 
     assert "Never write laughs" in SYSTEM_PROMPT and "Hehe!" not in SYSTEM_PROMPT
+
+
+# ---- phone -----------------------------------------------------------------
+
+def _phone_server(tmp_path, reply="Hi from your fox!"):
+    import gzip
+    import json
+    import threading
+    from http.server import ThreadingHTTPServer
+    from groot.phone import PhoneActions, PhoneBrain, make_handler
+
+    skills = Skills(tmp_path, mac_apps=False)
+    actions = PhoneActions()
+
+    def fake_reply(text):
+        if "dance" in text:
+            actions.perform_action("dance")
+        return reply
+
+    phone = PhoneBrain(SimpleNamespace(reply=fake_reply), skills, actions, voice=None)
+    frames = gzip.compress(json.dumps({"W": 10, "H": 10, "anims": {}}).encode())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(phone, frames, "secret-key-123456789"))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}", skills
+
+
+def _request(url, body=None, key="secret-key-123456789"):
+    import json
+    import urllib.error
+    import urllib.request
+
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["X-Groot-Key"] = key
+    data = json.dumps(body).encode() if body is not None else None
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=5) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
+def test_phone_server_needs_the_secret_key(tmp_path):
+    server, base, _ = _phone_server(tmp_path)
+    try:
+        assert _request(base + "/")[0] == 200  # the page itself is public; everything else needs the key
+        assert _request(base + "/api/chat", {"text": "hi"}, key="wrong")[0] == 401
+        assert _request(base + "/api/frames", key=None)[0] == 401
+        status, body = _request(base + "/api/frames")
+        assert status == 200
+    finally:
+        server.shutdown()
+
+
+def test_phone_chat_replies_acts_and_stops(tmp_path):
+    import json
+
+    server, base, skills = _phone_server(tmp_path)
+    try:
+        result = json.loads(_request(base + "/api/chat", {"text": "hello"})[1])
+        assert result["reply"] == "Hi from your fox!" and result["end"] is False and result["say"]
+        result = json.loads(_request(base + "/api/chat", {"text": "let's dance"})[1])
+        assert result["activity"] == "dance"
+        result = json.loads(_request(base + "/api/chat", {"text": "you can stop"})[1])
+        assert result["end"] is True
+    finally:
+        server.shutdown()
+
+
+def test_phone_sending_still_needs_a_spoken_yes(tmp_path):
+    import json
+
+    server, base, skills = _phone_server(tmp_path)
+    sent = []
+    try:
+        skills.ask_confirmation("send an email to Sam", lambda: sent.append(1) or "Email sent.")
+        result = json.loads(_request(base + "/api/chat", {"text": "yes"})[1])
+        assert result["reply"] == "Email sent." and sent == [1]
+    finally:
+        server.shutdown()
+
+
+def test_phone_frames_record_the_same_drawing():
+    from groot.phone import build_frames
+
+    data = build_frames("fox")
+    assert set(data["anims"]) >= {"idle", "walk", "listening", "thinking", "speaking", "sleep", "dance"}
+    first = data["anims"]["idle"][0]
+    kinds = {op[0] for op in first}
+    assert {"S", "R", "P", "G"} <= kinds  # shapes and gradients, replayed by the phone's browser
+    assert all(len(frames) > 5 for frames in data["anims"].values())
