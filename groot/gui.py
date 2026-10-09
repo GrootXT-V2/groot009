@@ -234,7 +234,7 @@ def run_gui(config, brain_kind: str) -> None:
             speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice,
                               pitch=config.voice_pitch, engine=config.tts,
                               edge_voice=config.edge_voice, edge_pitch=config.edge_pitch,
-                              dramatic=config.dramatic_voice)
+                              dramatic=config.dramatic_voice, edge_rate=config.edge_rate)
 
             def announce(text):  # used by timers
                 robot.set_text(f"{config.name}: {text}", seconds=8)

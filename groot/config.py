@@ -44,8 +44,17 @@ class Config:
     stt_engine: str = field(default_factory=lambda: os.getenv("GROOT_STT", "google"))
     whisper_model: str = field(default_factory=lambda: os.getenv("GROOT_WHISPER_MODEL", "base"))
     tts: str = field(default_factory=lambda: os.getenv("GROOT_TTS", "edge").lower())
+    # baby (default), little, normal - or custom to use the GROOT_EDGE_* settings below
+    voice_style: str = field(default_factory=lambda: os.getenv("GROOT_VOICE_STYLE", "baby").lower())
     edge_voice: str = field(default_factory=lambda: os.getenv("GROOT_EDGE_VOICE", "en-US-AndrewNeural"))
     edge_pitch: str = field(default_factory=lambda: os.getenv("GROOT_EDGE_PITCH", "+30Hz"))
+    edge_rate: str = field(default_factory=lambda: os.getenv("GROOT_EDGE_RATE", "+5%"))
+
+    def __post_init__(self):
+        from .voice import VOICE_STYLES
+
+        if self.voice_style in VOICE_STYLES:  # a preset wins over the individual settings
+            self.edge_voice, self.edge_pitch, self.edge_rate = VOICE_STYLES[self.voice_style]
     voice: str = field(default_factory=lambda: os.getenv("GROOT_VOICE", ""))
     dramatic_voice: bool = field(default_factory=lambda: _bool("GROOT_DRAMATIC_VOICE", True))
     tree_voice: bool = field(default_factory=lambda: _bool("GROOT_TREE_VOICE", True))

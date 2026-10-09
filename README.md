@@ -169,10 +169,11 @@ your `.env` private: the Slack token can read and send your messages.
 | `GROOT_WHISPER_MODEL` | `base` | Whisper size: `tiny`, `base`, `small`, `medium` |
 | `GROOT_VOICE_RATE` | `180` | Speaking speed |
 | `GROOT_TTS` | `edge` | `edge` = natural neural voice (free, needs internet), `mac` = built-in Mac voices |
+| `GROOT_VOICE_STYLE` | `baby` | `baby` (cute child voice), `little`, `normal`, or `custom` to use the `GROOT_EDGE_*` settings |
 | `GROOT_EDGE_VOICE` | `en-US-AndrewNeural` | Natural voice (list: `edge-tts --list-voices`) |
 | `GROOT_EDGE_PITCH` | `+30Hz` | Little Groot pitch for the natural voice (`+0Hz` normal) |
 | `GROOT_DRAMATIC_VOICE` | `true` | Act out each sentence (excited lines go up, questions rise, "..." slows down) |
-| `GROOT_PERSONALITY` | `cute` | `cute` = adorable, dramatic personality; `plain` = normal assistant |
+| `GROOT_PERSONALITY` | `baby` | `baby` = cute toddler talk; `cute` = adorable and dramatic; `plain` = normal assistant |
 | `GROOT_TREE_VOICE` | `true` | Little Groot voice (Mac). `false` = normal voice |
 | `GROOT_VOICE_PITCH` | `1.25` | Higher = smaller, cuter voice. `1.0` normal, `0.8` big deep Groot |
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |

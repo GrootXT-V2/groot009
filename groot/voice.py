@@ -26,24 +26,40 @@ def _hz(pitch: str) -> int:
         return 0
 
 
-def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH) -> tuple:
+def _percent(rate: str) -> int:
+    try:
+        return int(rate.replace("%", ""))
+    except ValueError:
+        return 0
+
+
+def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH, base_rate: str = EDGE_RATE) -> tuple:
     """(rate, pitch) for one sentence, so the voice acts out each line:
     excited lines go up and speed up, questions rise, '...' slows right down."""
     base = _hz(base_pitch)
+    speed = _percent(base_rate)
     text = sentence.strip()
     lowered = text.lower()
-    rate, pitch = 5, base
+    rate, pitch = 0, base  # rate is relative to the base speed
     if text.endswith("!") or lowered.startswith(("wow", "yay", "ooh", "whoa", "oh my")):
-        rate, pitch = 14, base + 18
+        rate, pitch = 9, base + 18
     elif text.endswith("?"):
-        rate, pitch = 3, base + 12
+        rate, pitch = -2, base + 12
     if "..." in text or "…" in text:
-        rate, pitch = -12, base - 6
-    if lowered.startswith(("oh no", "aww", "sniff", "uh oh")):
-        rate, pitch = -8, base + 6
+        rate, pitch = -17, base - 6
+    if lowered.startswith(("oh no", "aww", "sniff", "uh oh", "uh-oh")):
+        rate, pitch = -13, base + 6
     if lowered.startswith(("hehe", "haha", "teehee")):
-        rate, pitch = 18, base + 22
-    return f"{rate:+d}%", f"{pitch:+d}Hz"
+        rate, pitch = 13, base + 22
+    return f"{speed + rate:+d}%", f"{pitch:+d}Hz"
+
+
+# Voice styles for the natural voice: (voice, pitch, speed)
+VOICE_STYLES = {
+    "baby": ("en-US-AnaNeural", "+15Hz", "-8%"),  # a real child's voice, a little higher and slower
+    "little": ("en-US-AndrewNeural", "+30Hz", "+5%"),  # a young man's voice pitched up
+    "normal": ("en-US-AndrewNeural", "+0Hz", "+0%"),
+}
 
 # Little Groot voice: a male Mac voice, recorded slowly and then played back
 # higher and faster, so it sounds small and cute. Voices in order of preference.
@@ -103,7 +119,8 @@ def i_am_groot(answer: str) -> str:
 class Speaker:
     def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True,
                  pitch: float = GROOT_PITCH, engine: str = "edge", edge_voice: str = EDGE_VOICE,
-                 edge_pitch: str = EDGE_GROOT_PITCH, dramatic: bool = True):
+                 edge_pitch: str = EDGE_GROOT_PITCH, dramatic: bool = True, edge_rate: str = EDGE_RATE):
+        self.edge_rate = edge_rate
         self.dramatic = dramatic  # act out each sentence (excited, curious, sad...)
         self.engine = engine  # "edge" (natural, online) or "mac" (built-in voices)
         self.edge_voice = edge_voice
@@ -187,8 +204,8 @@ class Speaker:
                         if self._stopped:
                             break
                         path = os.path.join(folder, f"{i}.mp3")
-                        rate, line_pitch = (dramatic_prosody(sentence, pitch) if self.dramatic
-                                            else (EDGE_RATE, pitch))
+                        rate, line_pitch = (dramatic_prosody(sentence, pitch, self.edge_rate) if self.dramatic
+                                            else (self.edge_rate, pitch))
                         speech = edge_tts.Communicate(sentence, self.edge_voice, rate=rate, pitch=line_pitch)
                         asyncio.run(speech.save(path))
                         ready.put(path)

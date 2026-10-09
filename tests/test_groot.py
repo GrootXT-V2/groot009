@@ -587,6 +587,8 @@ def test_cute_personality_in_prompt(monkeypatch):
 
     monkeypatch.setenv("GROOT_PERSONALITY", "cute")
     assert "adorable, dramatic" in importlib.reload(brain).SYSTEM_PROMPT
+    monkeypatch.setenv("GROOT_PERSONALITY", "baby")
+    assert "cute toddler" in importlib.reload(brain).SYSTEM_PROMPT
     monkeypatch.setenv("GROOT_PERSONALITY", "plain")
     assert "adorable" not in importlib.reload(brain).SYSTEM_PROMPT
     monkeypatch.delenv("GROOT_PERSONALITY")
@@ -694,3 +696,16 @@ def test_buddy_walks_on_the_floor_and_falls_when_dropped():
     for _ in range(200):
         buddy.tick()
     assert buddy.y == buddy.floor  # fell back down
+
+
+def test_baby_voice_style(monkeypatch):
+    from groot.config import Config
+    from groot.voice import dramatic_prosody
+
+    monkeypatch.delenv("GROOT_VOICE_STYLE", raising=False)
+    monkeypatch.setenv("GROOT_EDGE_VOICE", "en-US-AndrewNeural")  # an old .env setting
+    config = Config()
+    assert (config.edge_voice, config.edge_pitch, config.edge_rate) == ("en-US-AnaNeural", "+15Hz", "-8%")
+    assert dramatic_prosody("Yay!", config.edge_pitch, config.edge_rate) == ("+1%", "+33Hz")
+    monkeypatch.setenv("GROOT_VOICE_STYLE", "custom")
+    assert Config().edge_voice == "en-US-AndrewNeural"
