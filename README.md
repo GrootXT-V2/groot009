@@ -102,35 +102,6 @@ Terminal as `[heard] ...`, so you can check it's picking you up.
 On Mac the buddy's window uses Apple's own AppKit (via PyObjC); on Windows and Linux it
 uses Qt (PySide6). Both are installed by `pip install -r requirements.txt`.
 
-## On your phone 📱
-
-Run this on your computer and keep it running:
-
-```bash
-python -m groot --phone
-```
-
-It prints a link and a QR code. Scan it with your phone's camera and Groot opens:
-the same fox, brain, voice and memory. Tap **Share → Add to Home Screen** to use it
-like an app.
-
-- **Tap the fox (or 🎤) and talk.** Groot answers out loud and keeps listening until
-  you say "stop" or tap again. You can also type.
-- Ask it to "dance", "jump" or "wave" and the fox does it on your phone. It can still
-  use your computer's apps ("play music on my Mac").
-- Phones only allow the microphone on secure **https** links. The plain Wi-Fi link
-  works for typing and your keyboard's 🎤 dictation. For tap-to-talk, and to use
-  Groot away from home, install Cloudflare's free tunnel once (`brew install cloudflared`
-  on Mac) — Groot then prints a secure https link and QR code automatically.
-- The link contains a secret key (saved in `~/.groot/phone_key`), so only you can
-  use it. Keep it private; delete that file to make a new key.
-
-### iPhone app
-
-There's also a real iPhone app (same fox, sleeping/waking/walking routine, and a
-home-screen widget) in the [`ios`](ios/README.md) folder. See
-[ios/README.md](ios/README.md) to install it with Xcode.
-
 ## Your apps, email and Slack (Mac)
 
 Groot can use your Mac apps. Just ask:
@@ -244,7 +215,6 @@ groot/
   integrations.py  Mac apps (Mail, Calendar, Music, Shortcuts...) and Slack
   notifications.py reads new Mac notifications
   memory.py     long-term memory (facts about you and recent chat)
-  phone.py / phone_app.html  Groot on your phone (web app served from your computer)
   buddy.py      the desktop buddy: behaviour and drawing
   mac_window.py / qt_window.py  its window on Mac (AppKit) / Windows and Linux (Qt)
   voice.py      microphone (speech-to-text) and speaker (text-to-speech)
