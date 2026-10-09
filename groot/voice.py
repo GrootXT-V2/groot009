@@ -15,8 +15,35 @@ import wave
 # Natural voice: Microsoft's free neural voices via the edge-tts package (needs internet).
 # Little Groot = a warm young male voice, pitched up a little.
 EDGE_VOICE = "en-US-AndrewNeural"
-EDGE_GROOT_PITCH = "+20Hz"
+EDGE_GROOT_PITCH = "+30Hz"
 EDGE_RATE = "+5%"
+
+
+def _hz(pitch: str) -> int:
+    try:
+        return int(pitch.lower().replace("hz", ""))
+    except ValueError:
+        return 0
+
+
+def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH) -> tuple:
+    """(rate, pitch) for one sentence, so the voice acts out each line:
+    excited lines go up and speed up, questions rise, '...' slows right down."""
+    base = _hz(base_pitch)
+    text = sentence.strip()
+    lowered = text.lower()
+    rate, pitch = 5, base
+    if text.endswith("!") or lowered.startswith(("wow", "yay", "ooh", "whoa", "oh my")):
+        rate, pitch = 14, base + 18
+    elif text.endswith("?"):
+        rate, pitch = 3, base + 12
+    if "..." in text or "…" in text:
+        rate, pitch = -12, base - 6
+    if lowered.startswith(("oh no", "aww", "sniff", "uh oh")):
+        rate, pitch = -8, base + 6
+    if lowered.startswith(("hehe", "haha", "teehee")):
+        rate, pitch = 18, base + 22
+    return f"{rate:+d}%", f"{pitch:+d}Hz"
 
 # Little Groot voice: a male Mac voice, recorded slowly and then played back
 # higher and faster, so it sounds small and cute. Voices in order of preference.
@@ -76,7 +103,8 @@ def i_am_groot(answer: str) -> str:
 class Speaker:
     def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True,
                  pitch: float = GROOT_PITCH, engine: str = "edge", edge_voice: str = EDGE_VOICE,
-                 edge_pitch: str = EDGE_GROOT_PITCH):
+                 edge_pitch: str = EDGE_GROOT_PITCH, dramatic: bool = True):
+        self.dramatic = dramatic  # act out each sentence (excited, curious, sad...)
         self.engine = engine  # "edge" (natural, online) or "mac" (built-in voices)
         self.edge_voice = edge_voice
         self.edge_pitch = edge_pitch
@@ -148,7 +176,8 @@ class Speaker:
         import edge_tts
 
         pitch = self.edge_pitch if self.tree_voice else "+0Hz"
-        sentences = split_sentences(text) or [text]
+        # dramatic mode speaks every sentence separately so each gets its own emotion
+        sentences = split_sentences(text, min_length=8 if self.dramatic else 25) or [text]
         ready = queue.Queue()
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
@@ -158,7 +187,9 @@ class Speaker:
                         if self._stopped:
                             break
                         path = os.path.join(folder, f"{i}.mp3")
-                        speech = edge_tts.Communicate(sentence, self.edge_voice, rate=EDGE_RATE, pitch=pitch)
+                        rate, line_pitch = (dramatic_prosody(sentence, pitch) if self.dramatic
+                                            else (EDGE_RATE, pitch))
+                        speech = edge_tts.Communicate(sentence, self.edge_voice, rate=rate, pitch=line_pitch)
                         asyncio.run(speech.save(path))
                         ready.put(path)
                 except Exception as exc:

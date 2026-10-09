@@ -342,7 +342,8 @@ def test_natural_voice_speaks_each_sentence(monkeypatch):
     speaker = voice.Speaker()
     speaker.say("Hello there my good friend. I am little Groot!")
     assert played == [("afplay", "Hello there my good friend."), ("afplay", "I am little Groot!")]
-    assert made[0][1:] == ("en-US-AndrewNeural", "+20Hz")
+    assert made[0][1:] == ("en-US-AndrewNeural", "+30Hz")  # calm sentence
+    assert made[1][2] == "+48Hz"  # "!" sentence is acted out higher
 
 
 def test_natural_voice_falls_back_to_mac_when_offline(monkeypatch):
@@ -606,3 +607,26 @@ def test_notifications_held_while_talking():
     session.active = False
     watcher.announce([])
     assert said == ["Slack: Sam. hi"]
+
+
+def test_dramatic_prosody_acts_out_each_line():
+    from groot.voice import dramatic_prosody, split_sentences
+
+    assert dramatic_prosody("It is three o'clock.", "+30Hz") == ("+5%", "+30Hz")
+    assert dramatic_prosody("Yay, it's sunny!", "+30Hz") == ("+14%", "+48Hz")
+    assert dramatic_prosody("Do you want a joke?", "+30Hz") == ("+3%", "+42Hz")
+    assert dramatic_prosody("Hmm... let me think.", "+30Hz") == ("-12%", "+24Hz")
+    assert dramatic_prosody("Hehe!", "+30Hz") == ("+18%", "+52Hz")
+    assert split_sentences("Ooh! Wow! It is raining today.", min_length=8) == ["Ooh! Wow!", "It is raining today."]
+
+
+def test_cute_personality_in_prompt(monkeypatch):
+    import importlib
+    import groot.brain as brain
+
+    monkeypatch.setenv("GROOT_PERSONALITY", "cute")
+    assert "adorable, dramatic" in importlib.reload(brain).SYSTEM_PROMPT
+    monkeypatch.setenv("GROOT_PERSONALITY", "plain")
+    assert "adorable" not in importlib.reload(brain).SYSTEM_PROMPT
+    monkeypatch.delenv("GROOT_PERSONALITY")
+    importlib.reload(brain)
