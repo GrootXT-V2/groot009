@@ -2,7 +2,7 @@
 # Double-click this file in Finder to start the Groot desktop robot.
 cd "$(dirname "$0")"
 
-# Use a Python version that PySide6 (the robot window) fully supports
+# Prefer a well-supported Python version (3.12 or 3.13)
 PY=""
 for candidate in python3.12 python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.13 python3; do
   if command -v "$candidate" >/dev/null 2>&1; then PY="$candidate"; break; fi

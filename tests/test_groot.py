@@ -366,26 +366,6 @@ def test_natural_voice_falls_back_to_mac_when_offline(monkeypatch):
     assert not speaker._can_use_edge()  # don't retry right away
 
 
-def test_prepare_qt_points_mac_at_pyside_plugins(tmp_path, monkeypatch):
-    import os
-    import sys as _sys
-    import types
-    import groot.gui as gui
-
-    plugins = tmp_path / "PySide6" / "Qt" / "plugins" / "platforms"
-    plugins.mkdir(parents=True)
-    (plugins / "libqcocoa.dylib").write_text("")
-    monkeypatch.setitem(_sys.modules, "PySide6", types.SimpleNamespace(__file__=str(tmp_path / "PySide6" / "__init__.py")))
-    monkeypatch.setattr(gui.sys, "platform", "darwin")
-    monkeypatch.setenv("QT_PLUGIN_PATH", "/opt/homebrew/share/qt/plugins")
-    monkeypatch.setenv("QT_QPA_PLATFORM_PLUGIN_PATH", "")  # restored after the test
-    gui.prepare_qt()
-    assert os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] == str(plugins)
-    assert os.environ["QT_PLUGIN_PATH"] == str(plugins.parent)
-
-
-# ---- apps, email and Slack -------------------------------------------------
-
 def _skills_with_fake_mac(tmp_path):
     from groot.integrations import MacApps
 
@@ -494,25 +474,6 @@ def test_media_control_only_known_apps(tmp_path):
     assert calls[-1][0] == 'tell application "Spotify" to next track'
     assert skills.run("media_control", {"action": "play", "app": 'x" to do shell script "rm'}) == "I can control Music or Spotify."
 
-
-def test_qt_check_explains_instead_of_crashing(monkeypatch):
-    import pytest
-    import groot.gui as gui
-
-    failed = SimpleNamespace(returncode=134, stdout="", stderr=(
-        "qt.core.plugin.factoryloader: checking directory path ...\n"
-        'Cannot load library libqcocoa.dylib: (Library not loaded: @rpath/QtGui.framework)\n'))
-    monkeypatch.setattr("subprocess.run", lambda *a, **k: failed)
-    with pytest.raises(SystemExit) as stop:
-        gui.check_qt_starts()
-    message = str(stop.value)
-    assert "Library not loaded" in message and "python3.12 -m venv .venv" in message
-
-    monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="qt-ok\n", stderr=""))
-    gui.check_qt_starts()  # works: no exit
-
-
-# ---- notifications ---------------------------------------------------------
 
 def _fake_notification_db(path, items):
     """A database laid out like macOS's notification center database."""
@@ -630,3 +591,106 @@ def test_cute_personality_in_prompt(monkeypatch):
     assert "adorable" not in importlib.reload(brain).SYSTEM_PROMPT
     monkeypatch.delenv("GROOT_PERSONALITY")
     importlib.reload(brain)
+
+
+# ---- desktop buddy ---------------------------------------------------------
+
+def _fake_appkit(monkeypatch):
+    """Stand-ins for Apple's AppKit/Foundation so the Mac window code can run here."""
+    import sys as _sys
+    import types
+    from unittest import mock
+
+    calls = []
+
+    class Recorder(mock.MagicMock):
+        pass
+
+    class Size:
+        width, height = 60.0, 18.0
+
+    class Rect:
+        size = Size()
+        origin = types.SimpleNamespace(x=0.0, y=0.0)
+
+    class NSObject:
+        @classmethod
+        def alloc(cls):
+            return cls()
+
+        def init(self):
+            return self
+
+        def initWithFrame_(self, rect):
+            return self
+
+    class NSView(NSObject):
+        def bounds(self):
+            return Rect()
+
+        def setNeedsDisplay_(self, flag):
+            calls.append("redraw")
+
+    attributed = Recorder()
+    attributed.alloc.return_value.initWithString_attributes_.return_value.boundingRectWithSize_options_.return_value = Rect()
+    screen = types.SimpleNamespace(frame=lambda: types.SimpleNamespace(size=types.SimpleNamespace(height=900.0)))
+    visible = types.SimpleNamespace(origin=types.SimpleNamespace(x=0.0, y=80.0),
+                                    size=types.SimpleNamespace(width=1440.0, height=795.0))
+    appkit = Recorder()
+    appkit.NSView = NSView
+    appkit.NSAttributedString = attributed
+    appkit.NSScreen.screens.return_value = [screen]
+    appkit.NSScreen.mainScreen.return_value.visibleFrame.return_value = visible
+    appkit.NSEvent.mouseLocation.return_value = types.SimpleNamespace(x=100.0, y=700.0)
+    foundation = types.SimpleNamespace(NSObject=NSObject, NSMakeRect=lambda *a: a, NSRunLoop=Recorder())
+    monkeypatch.setitem(_sys.modules, "AppKit", appkit)
+    monkeypatch.setitem(_sys.modules, "Foundation", foundation)
+    monkeypatch.delitem(_sys.modules, "groot.mac_window", raising=False)
+    import groot.mac_window as mac_window
+    return mac_window, appkit, calls
+
+
+def test_mac_window_draws_and_handles_mouse(monkeypatch):
+    from groot.buddy import Buddy
+
+    mac_window, appkit, calls = _fake_appkit(monkeypatch)
+    host = mac_window.MacHost()
+    assert host.area == (0.0, 25.0, 1440.0, 820.0)  # menu bar and Dock left out
+    for style in ("tree", "robot"):
+        buddy = Buddy(style=style, area=host.area)
+        buddy.caption = "Hi! I'm Groot."
+        host.show(buddy)
+        for state in ("idle", "listening", "thinking", "speaking"):
+            buddy.state = state
+            host.tick()
+            mac_window.BuddyView.drawRect_(host.view, None)  # full drawing pass
+    assert "redraw" in calls
+    # window position is converted to Mac's bottom-left coordinates
+    origin = host.window.setFrameOrigin_.call_args[0][0]
+    assert origin == (buddy.x, 900.0 - buddy.y - buddy.H)
+    # clicking toggles a conversation; the menu builds and its items work
+    toggled = []
+    buddy.session = SimpleNamespace(toggle=lambda: toggled.append(1), quit=lambda: None,
+                                    groot_mode=False, speaker=SimpleNamespace(tree_voice=False))
+    view = host.view
+    mac_window.BuddyView.mouseDown_(view, None)
+    mac_window.BuddyView.mouseUp_(view, None)
+    assert toggled == [1]
+    host.build_menu()
+    stay_still_tag = [i for i, (checked, _) in enumerate(host._callbacks) if checked is False][0]
+    host.menu_clicked(SimpleNamespace(tag=lambda: stay_still_tag))
+    assert buddy.stay_still is True
+
+
+def test_buddy_walks_on_the_floor_and_falls_when_dropped():
+    from groot.buddy import Area, Buddy
+
+    buddy = Buddy(area=Area(0, 25, 1440, 820))
+    assert buddy.y == buddy.floor == 820 - buddy.H
+    buddy.press(500, 700)
+    buddy.drag(500, 400)  # picked up
+    assert buddy.dragging and buddy.y < buddy.floor
+    buddy.release()
+    for _ in range(200):
+        buddy.tick()
+    assert buddy.y == buddy.floor  # fell back down

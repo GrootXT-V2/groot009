@@ -175,82 +175,6 @@ class Session:
         self.speaker.say(i_am_groot(text) if self.groot_mode else text)
 
 
-REINSTALL_QT = (
-    "Run these, then start Groot again:\n"
-    "  pip uninstall -y PySide6 PySide6-Essentials PySide6-Addons shiboken6\n"
-    "  pip install --no-cache-dir PySide6"
-)
-
-
-def prepare_qt() -> None:
-    """Point Qt at PySide6's own plugins.
-
-    Without this, Qt on a Mac can look in the wrong place (for example a
-    Homebrew Qt) and crash with 'Could not find the Qt platform plugin "cocoa"'.
-    """
-    import glob
-    import os
-
-    try:
-        import PySide6
-    except ImportError:
-        sys.exit("The desktop robot needs PySide6.\nRun:  pip install -r requirements.txt")
-
-    if sys.platform != "darwin":
-        return
-    for var in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_PLATFORM"):
-        os.environ.pop(var, None)  # settings left behind by other Qt installs
-    base = os.path.dirname(PySide6.__file__)
-    for platforms in glob.glob(os.path.join(base, "**", "platforms"), recursive=True):
-        if glob.glob(os.path.join(platforms, "libqcocoa*")):
-            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = platforms
-            os.environ["QT_PLUGIN_PATH"] = os.path.dirname(platforms)
-            return
-    sys.exit(f"PySide6 is installed but its Mac display plugin is missing (looked in {base}).\n"
-             + REINSTALL_QT)
-
-
-USE_OLDER_PYTHON = (
-    "Fix: run Groot with Python 3.12, which PySide6 fully supports:\n"
-    "  brew install python@3.12\n"
-    "  rm -rf .venv\n"
-    "  python3.12 -m venv .venv\n"
-    "  source .venv/bin/activate\n"
-    "  pip install -r requirements.txt\n"
-    "  python -m groot --gui\n"
-    "(Or just double-click Groot.command, which does this for you.)"
-)
-
-QT_PROBLEM_WORDS = ("cannot load", "library not loaded", "reason", "image not found",
-                    "incompatible", "symbol not found", "error", "could not")
-
-
-def check_qt_starts() -> None:
-    """Try starting Qt in a separate process first.
-
-    If Qt can't start, it kills Python with a macOS crash dialog. Testing it
-    in a throwaway process lets us show the real reason and a fix instead.
-    """
-    import os
-    import subprocess
-
-    env = dict(os.environ, QT_DEBUG_PLUGINS="1")
-    probe = "from PySide6.QtWidgets import QApplication; app = QApplication([]); print('qt-ok')"
-    try:
-        result = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True,
-                                text=True, timeout=60)
-    except subprocess.TimeoutExpired:
-        return  # slow but alive: carry on
-    if result.returncode == 0 and "qt-ok" in result.stdout:
-        return
-    lines = [line.strip() for line in (result.stderr or "").splitlines()]
-    reasons = [line for line in lines if any(word in line.lower() for word in QT_PROBLEM_WORDS)]
-    details = "\n".join(f"  {line[:300]}" for line in reasons[-6:]) or "  (no details)"
-    version = ".".join(map(str, sys.version_info[:3]))
-    sys.exit(f"The robot window (Qt) can't start with Python {version}.\nWhat Qt said:\n{details}\n\n"
-             + USE_OLDER_PYTHON)
-
-
 def start_notification_watcher(session, speaker, robot):
     """Read new notifications aloud; hold them while you're talking to Groot."""
     from .notifications import NotificationWatcher, Notifications, summarize
@@ -275,23 +199,33 @@ def start_notification_watcher(session, speaker, robot):
     return watcher
 
 
-def run_gui(config, brain_kind: str) -> None:
-    prepare_qt()
+def make_host():
+    """The window system: Apple's AppKit on Mac, Qt everywhere else."""
     if sys.platform == "darwin":
-        check_qt_starts()
-    from PySide6 import QtWidgets
+        try:
+            from .mac_window import MacHost
+        except ImportError:
+            sys.exit("The desktop buddy needs PyObjC on Mac.\nRun:  pip install -r requirements.txt")
+        return MacHost()
+    try:
+        from .qt_window import QtHost
+    except ImportError:
+        sys.exit("The desktop buddy needs PySide6.\nRun:  pip install -r requirements.txt")
+    return QtHost()
+
+
+def run_gui(config, brain_kind: str) -> None:
     import signal
 
     from .__main__ import make_brain
-    from .robot_window import RobotWindow
+    from .buddy import Buddy
     from .skills import Skills
     from .voice import Listener, Speaker
 
-    app = QtWidgets.QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(True)
+    host = make_host()
     signal.signal(signal.SIGINT, signal.SIG_DFL)  # let Ctrl+C in Terminal quit
-    robot = RobotWindow(name=config.name, size=config.robot_size, style=config.robot_style)
-    robot.show()
+    robot = Buddy(name=config.name, size=config.robot_size, style=config.robot_style, area=host.area)
+    host.show(robot)
 
     def load():
         # Microphone calibration and loading the brain take a few seconds,
@@ -327,4 +261,4 @@ def run_gui(config, brain_kind: str) -> None:
             robot.set_text(f"Couldn't start: {exc}")
 
     threading.Thread(target=load, daemon=True).start()
-    app.exec()
+    host.run()

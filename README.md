@@ -96,7 +96,8 @@ recognition as the rest of the app (Google's free service by default, or
 offline Whisper with `GROOT_STT=whisper`). Everything it hears is printed in
 Terminal as `[heard] ...`, so you can check it's picking you up.
 
-The robot window uses Qt (PySide6), installed by `pip install -r requirements.txt`.
+On Mac the buddy's window uses Apple's own AppKit (via PyObjC); on Windows and Linux it
+uses Qt (PySide6). Both are installed by `pip install -r requirements.txt`.
 
 ## Your apps, email and Slack (Mac)
 
@@ -194,6 +195,8 @@ groot/
   skills.py     what Groot can do (add your own here!)
   integrations.py  Mac apps (Mail, Calendar, Music, Shortcuts...) and Slack
   notifications.py reads new Mac notifications
+  buddy.py      the desktop buddy: behaviour and drawing
+  mac_window.py / qt_window.py  its window on Mac (AppKit) / Windows and Linux (Qt)
   voice.py      microphone (speech-to-text) and speaker (text-to-speech)
   config.py     settings from .env
 tests/          run with: pip install pytest && pytest
