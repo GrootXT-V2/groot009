@@ -148,6 +148,7 @@ def test_mac_speaker_uses_say_every_time(monkeypatch):
             return 0
 
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(voice.subprocess, "run", lambda *a, **k: None)  # warm-up
     speaker = voice.Speaker(rate=200, voice="Samantha")
     for text in ["one", "two", "three"]:
         speaker.say(text)
@@ -207,3 +208,25 @@ def test_session_stops_when_clicked_again():
     session.toggle()  # second click
     assert not session.active
     assert states[-1] == "idle"
+
+
+def test_picks_fast_mac_voice():
+    from groot.voice import pick_fast_voice
+
+    assert pick_fast_voice(["Albert", "Daniel", "Samantha"]) == "Samantha"
+    assert pick_fast_voice(["Eddy (English (US))", "Daniel"]) == "Daniel"
+    assert pick_fast_voice(["Eddy (English (US))"]) == ""
+
+
+def test_parses_mac_voice_list(monkeypatch):
+    import groot.voice as voice
+
+    sample = (
+        "Albert              en_US    # Hello! My name is Albert.\n"
+        "Bad News            en_US    # Hello! My name is Bad News.\n"
+        "Eddy (English (US)) en_US    # Hello! My name is Eddy.\n"
+        "Samantha            en_US    # Hello! My name is Samantha.\n"
+    )
+    monkeypatch.setattr(voice.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=sample))
+    names = voice.mac_voices()
+    assert "Samantha" in names and "Bad News" in names and "Albert" in names
