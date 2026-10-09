@@ -210,7 +210,7 @@ def test_robot_ignores_chatter_wakes_on_hey_groot_and_stops():
     script = _session(["what a nice day", "hey groot", "hello", "you can stop", "hello again"])
     script.session.run_forever()
     assert script.said == ["Hi! I'm listening.", "echo: hello",
-                           "Okay! I'll go play. Say hey Groot if you need me."]
+                           "Okay."]
     assert not script.session.active  # "hello again" was ignored: no wake word
     assert script.states[-1] == "idle"
 
@@ -289,7 +289,7 @@ def test_groot_voice_records_deepens_and_plays(monkeypatch):
 def test_session_groot_mode_speaks_groot_but_shows_answer():
     script = _session(["hey groot what time is it", "stop"], groot_mode=True)
     script.session.run_forever()
-    assert script.said == ["I am Groot.", "I am Groot!"]
+    assert script.said == ["I am Groot.", "I am Groot."]
     assert "Groot: echo: what time is it" in script.shown
 
 
@@ -346,7 +346,7 @@ def test_natural_voice_speaks_each_sentence(monkeypatch):
     assert made[1][2] == "+48Hz"  # "!" sentence is acted out higher
 
 
-def test_natural_voice_falls_back_to_mac_when_offline(monkeypatch):
+def test_natural_voice_keeps_selected_voice_when_offline(monkeypatch):
     import groot.voice as voice
 
     _fake_edge(monkeypatch, voice, fail=True)
@@ -361,9 +361,9 @@ def test_natural_voice_falls_back_to_mac_when_offline(monkeypatch):
 
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
     speaker = voice.Speaker(tree_voice=False)
-    speaker.say("hello")
-    assert ran == [["say", "-r", "180", "hello"]]
-    assert not speaker._can_use_edge()  # don't retry right away
+    assert speaker.say("hello") is False
+    assert ran == []
+    assert speaker._can_use_edge()  # retry selected voice on the next reply
 
 
 def _skills_with_fake_mac(tmp_path):

@@ -21,7 +21,7 @@ def _bool(name: str, default: bool) -> bool:
 
 @dataclass
 class Config:
-    name: str = field(default_factory=lambda: os.getenv("GROOT_NAME", "Groot"))
+    name: str = field(default_factory=lambda: os.getenv("GROOT_NAME", "Kurama"))
     # "auto" picks Claude if ANTHROPIC_API_KEY is set, else Groq if GROQ_API_KEY is set,
     # else free local Ollama
     brain: str = field(default_factory=lambda: os.getenv("GROOT_BRAIN", "auto").lower())
@@ -36,7 +36,7 @@ class Config:
     wake_words: tuple = field(
         default_factory=lambda: tuple(
             w.strip().lower()
-            for w in os.getenv("GROOT_WAKE_WORDS", "hey groot,groot").split(",")
+            for w in os.getenv("GROOT_WAKE_WORDS", "hay kurama,hey kurama,kurama").split(",")
             if w.strip()
         )
     )

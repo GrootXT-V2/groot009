@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import wave
+from .speech import correct_app_command, transcribe_groq
 
 # Natural voice: Microsoft's free neural voices via the edge-tts package (needs internet).
 # Little Groot = a warm young male voice, pitched up a little.
@@ -70,6 +71,7 @@ def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH, base_rat
 
 # Voice styles for the natural voice: (voice, pitch, speed)
 VOICE_STYLES = {
+    "kurama": ("en-US-AndrewNeural", "-28Hz", "-8%"),  # deep voice, measured delivery
     # Microsoft's newest, most human-sounding voices, with no pitch tricks
     "natural": ("en-US-AndrewMultilingualNeural", "+0Hz", "+0%"),
     "natural-female": ("en-US-AvaMultilingualNeural", "+0Hz", "+0%"),
@@ -142,7 +144,6 @@ class Speaker:
         self.engine = engine  # "edge" (natural, online) or "mac" (built-in voices)
         self.edge_voice = edge_voice
         self.edge_pitch = edge_pitch
-        self._edge_down_until = 0.0  # skip edge for a while after a failure (e.g. offline)
         self.rate = rate
         self.pitch = pitch
         self.voice = voice
@@ -159,21 +160,26 @@ class Speaker:
 
             self.pyttsx3 = pyttsx3
 
-    def say(self, text: str) -> None:
+    def say(self, text: str):
         text = clean_for_speech(text)
         if not text:
             return
         with self._lock:
             self._stopped = False
-            if self._can_use_edge():
-                try:
-                    self._say_edge(text)
-                    return
-                except Exception as exc:
-                    self._edge_down_until = time.time() + 120
-                    print(f"[natural voice unavailable ({exc}), using Mac voice]")
-                    if self._stopped:
-                        return
+            if self.engine == "edge":
+                # Keep the selected voice even during service failures.
+                # A different synthesizer changes the character's voice entirely.
+                if self._can_use_edge():
+                    for attempt in range(2):
+                        if self._stopped:
+                            return
+                        try:
+                            self._say_edge(text)
+                            return
+                        except Exception as exc:
+                            print(f"[selected voice attempt {attempt + 1} failed: {type(exc).__name__}]", flush=True)
+                print("[selected voice unavailable; reply remains on screen]", flush=True)
+                return False
             if self.use_mac_say:
                 if self.tree_voice:
                     try:
@@ -194,7 +200,7 @@ class Speaker:
             engine.stop()
 
     def _can_use_edge(self) -> bool:
-        if self.engine != "edge" or time.time() < self._edge_down_until:
+        if self.engine != "edge":
             return False
         if shutil.which("afplay") is None:  # audio player built into macOS
             return False
@@ -214,7 +220,8 @@ class Speaker:
 
         pitch = self.edge_pitch if self.tree_voice else "+0Hz"
         # dramatic mode speaks sentences separately so each gets its own emotion
-        sentences = split_sentences(text, min_length=14 if self.dramatic else 25) or [text]
+        # Ordinary dialogue needs full context for smooth phrasing and intonation.
+        sentences = (split_sentences(text, min_length=14) or [text]) if self.dramatic else [text]
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             def prepare(i, sentence):
@@ -282,32 +289,54 @@ class Listener:
         self.sr = sr
         self.engine = engine
         self.whisper_model = whisper_model
+        self._groq_retry_after = 0.0
         self.recognizer = sr.Recognizer()
-        self.recognizer.dynamic_energy_threshold = True
-        # notice sooner that you've finished talking (default waits 0.8 s of silence)
-        self.recognizer.pause_threshold = 0.5
-        self.recognizer.non_speaking_duration = 0.3
+        self.recognizer.dynamic_energy_threshold = False
+        # Keep quiet syllables after a loud greeting: do not adapt the noise
+        # threshold to speech or trim away the end of the wake phrase.
+        self.recognizer.pause_threshold = 1.2
+        self.recognizer.non_speaking_duration = 1.2
+        self.recognizer.phrase_threshold = 0.15
+        self.recognizer.operation_timeout = 10
         self._mic_lock = threading.Lock()  # only one listener at a time
+        self.on_speech_start = None
         self.microphone = sr.Microphone()
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
+        print(f"[microphone] ready; energy threshold={self.recognizer.energy_threshold:.0f}", flush=True)
 
     def listen(self, timeout: float = None, phrase_limit: float = 15) -> str:
         """Record one phrase and return it as text ('' if nothing understood)."""
         with self._mic_lock, self.microphone as source:
             try:
-                audio = self.recognizer.listen(
-                    source, timeout=timeout, phrase_time_limit=phrase_limit
-                )
+                if self.on_speech_start is None:
+                    audio = self.recognizer.listen(
+                        source, timeout=timeout, phrase_time_limit=phrase_limit
+                    )
+                else:
+                    chunks = self.recognizer.listen(
+                        source, timeout=timeout, phrase_time_limit=phrase_limit, stream=True
+                    )
+                    first = next(chunks)
+                    self.on_speech_start()
+                    frames = first.frame_data + b"".join(chunk.frame_data for chunk in chunks)
+                    audio = self.sr.AudioData(frames, first.sample_rate, first.sample_width)
             except self.sr.WaitTimeoutError:
                 return ""
         try:
+            if self.engine == "groq" and time.monotonic() >= self._groq_retry_after:
+                try:
+                    return correct_app_command(transcribe_groq(audio))
+                except Exception as exc:
+                    # Reuse this recording; do not ask the user to repeat it.
+                    self._groq_retry_after = time.monotonic() + 60
+                    print(f"[Whisper unavailable: {type(exc).__name__}; using Google temporarily]", flush=True)
             if self.engine == "whisper":
                 # Runs offline on your computer (pip install openai-whisper)
-                return self.recognizer.recognize_whisper(
+                return correct_app_command(self.recognizer.recognize_whisper(
                     audio, model=self.whisper_model, language="english"
-                ).strip()
-            return self.recognizer.recognize_google(audio).strip()
+                ).strip())
+            return correct_app_command(self.recognizer.recognize_google(audio).strip())
         except self.sr.UnknownValueError:
             return ""
         except self.sr.RequestError as exc:
