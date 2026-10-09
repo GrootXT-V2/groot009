@@ -74,3 +74,23 @@ def test_ollama_brain_uses_tools(tmp_path):
     brain = OllamaBrain("llama3.2", Skills(tmp_path), post=fake_post)
     assert brain.reply("what time is it") == "It's noon."
     assert calls[0]["messages"][0]["role"] == "system"
+
+
+def test_groq_brain_uses_tools(tmp_path):
+    from groot.brain import GroqBrain
+
+    calls = []
+
+    def fake_post(url, payload, headers):
+        calls.append(payload)
+        assert headers["Authorization"] == "Bearer test-key"
+        if len(calls) == 1:
+            return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "get_time", "arguments": "{}"}}]}}]}
+        assistant_msg, tool_msg = payload["messages"][-2:]
+        assert assistant_msg["tool_calls"][0]["id"] == "c1"
+        assert tool_msg["tool_call_id"] == "c1" and tool_msg["content"].startswith("It is")
+        return {"choices": [{"message": {"role": "assistant", "content": "It's noon."}}]}
+
+    brain = GroqBrain("test-key", "llama", Skills(tmp_path), post=fake_post)
+    assert brain.reply("what time is it") == "It's noon."

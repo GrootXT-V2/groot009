@@ -2,13 +2,12 @@
 
 import argparse
 import os
-import sys
-
-from .assistant import Assistant
 import json
+import sys
 import urllib.request
 
-from .brain import Brain, OllamaBrain
+from .assistant import Assistant
+from .brain import Brain, GroqBrain, OllamaBrain
 from .config import Config
 from .skills import Skills
 
@@ -40,9 +39,16 @@ def main() -> None:
     config = Config()
     brain_kind = config.brain
     if brain_kind == "auto":
-        brain_kind = "claude" if os.getenv("ANTHROPIC_API_KEY") else "ollama"
+        if os.getenv("ANTHROPIC_API_KEY"):
+            brain_kind = "claude"
+        elif os.getenv("GROQ_API_KEY"):
+            brain_kind = "groq"
+        else:
+            brain_kind = "ollama"
     if brain_kind == "claude" and not os.getenv("ANTHROPIC_API_KEY"):
         sys.exit("ANTHROPIC_API_KEY is not set. Add it to .env, or set GROOT_BRAIN=ollama to use the free local brain.")
+    if brain_kind == "groq" and not os.getenv("GROQ_API_KEY"):
+        sys.exit("GROQ_API_KEY is not set. Get a free key at https://console.groq.com/keys and add it to .env.")
     if brain_kind == "ollama":
         check_ollama(config)
     if args.no_wake or args.text:
@@ -77,9 +83,14 @@ def main() -> None:
 
     skills = Skills(config.data_dir, default_city=config.city, announce=speak)
     if brain_kind == "ollama":
-        print(f"Using free local brain: Ollama ({config.ollama_model})")
+        print(f"Using free local brain: Ollama ({config.ollama_model}). Loading model...")
         brain = OllamaBrain(config.ollama_model, skills, name=config.name, city=config.city,
                             url=config.ollama_url)
+        brain.warm_up()
+    elif brain_kind == "groq":
+        print(f"Using free fast cloud brain: Groq ({config.groq_model})")
+        brain = GroqBrain(os.environ["GROQ_API_KEY"], config.groq_model, skills,
+                          name=config.name, city=config.city)
     else:
         import anthropic
 
