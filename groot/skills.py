@@ -23,6 +23,7 @@ class Skills:
     def __init__(self, data_dir: Path, default_city: str = "", announce: Callable[[str], None] = print,
                  slack_token: str = "", mac_apps: bool = None):
         from .integrations import MAC_TOOLS, SLACK_TOOLS, MacApps, Slack, mac_available
+        from .notifications import NOTIFICATION_TOOLS, Notifications
 
         self.data_dir = Path(data_dir)
         self.default_city = default_city
@@ -34,6 +35,7 @@ class Skills:
         self.integrations = []
         if mac_available() if mac_apps is None else mac_apps:
             self.integrations.append((MacApps(self.ask_confirmation), MAC_TOOLS))
+            self.integrations.append((Notifications(), NOTIFICATION_TOOLS))
         if slack_token:
             self.integrations.append((Slack(slack_token, self.ask_confirmation), SLACK_TOOLS))
 

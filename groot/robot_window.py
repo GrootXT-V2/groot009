@@ -48,6 +48,7 @@ class RobotWindow(QtWidgets.QWidget):
 
         self.name = name
         self.session = None
+        self.watcher = None  # reads new notifications aloud (Mac)
         self.state = "loading"
         self.caption = "Getting ready..."
         self.caption_until = float("inf")
@@ -95,6 +96,9 @@ class RobotWindow(QtWidgets.QWidget):
     def set_session(self, session) -> None:
         self.events.put(("session", session))
 
+    def set_watcher(self, watcher) -> None:
+        self.events.put(("watcher", watcher))
+
     # ---- mouse
 
     def mousePressEvent(self, event):
@@ -136,6 +140,11 @@ class RobotWindow(QtWidgets.QWidget):
             action.setCheckable(True)
             action.setChecked(getattr(self, attr))
             action.toggled.connect(lambda checked, a=attr: self._set_option(a, checked))
+        if self.watcher is not None:
+            action = menu.addAction("Read notifications aloud")
+            action.setCheckable(True)
+            action.setChecked(self.watcher.enabled)
+            action.toggled.connect(lambda checked: setattr(self.watcher, "enabled", checked))
         menu.addSeparator()
         menu.addAction(f"Quit {self.name}", self.quit)
         menu.exec(event.globalPos())
@@ -268,6 +277,8 @@ class RobotWindow(QtWidgets.QWidget):
                 text, seconds = value
                 self.caption = text
                 self.caption_until = time.monotonic() + seconds if seconds else float("inf")
+            elif kind == "watcher":
+                self.watcher = value
             elif kind == "session":
                 self.session = value
                 self.little_voice = value.speaker.tree_voice

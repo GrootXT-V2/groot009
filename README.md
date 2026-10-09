@@ -135,6 +135,15 @@ Notes, HomeKit lights, Messages, …) and say "run my <name> shortcut".
 Then: "What's new in #general?", "Read my messages from Sam", "Search Slack
 for the deadline", "Tell Sam on Slack I'm on my way" (asks for "yes" first).
 
+**Notifications:** Groot reads new Mac notifications out loud as they arrive
+(Slack, WhatsApp, Mail, Messages, Calendar, …) and shows them above the robot.
+While you're talking to it, it waits and reads them afterwards. You can also
+ask "What notifications did I get in the last hour?" To allow this, open
+**System Settings → Privacy & Security → Full Disk Access** and turn on
+**Terminal**, then restart Groot. Turn reading aloud off from the robot's
+right-click menu, or with `GROOT_READ_NOTIFICATIONS=false`. Groot only reads
+notifications — it never changes or deletes them.
+
 **Safety:** Groot never sends an email or Slack message until you say "yes"
 to what it reads back. That check is in the code, not just the AI's
 instructions, so nothing in an email or message can trick it into sending.
@@ -165,6 +174,7 @@ your `.env` private: the Slack token can read and send your messages.
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
 | `GROOT_ROBOT_SIZE` | `0.6` | Desktop robot size (`1.0` = big) |
+| `GROOT_READ_NOTIFICATIONS` | `true` | Read new Mac notifications aloud (needs Full Disk Access) |
 | `SLACK_TOKEN` | — | Slack user token (`xoxp-...`) to let Groot read and send Slack messages |
 | `GROOT_CITY` | — | Home city for weather |
 
@@ -179,6 +189,7 @@ groot/
   brain.py      talks to Claude, Groq or Ollama, runs skills it asks for
   skills.py     what Groot can do (add your own here!)
   integrations.py  Mac apps (Mail, Calendar, Music, Shortcuts...) and Slack
+  notifications.py reads new Mac notifications
   voice.py      microphone (speech-to-text) and speaker (text-to-speech)
   config.py     settings from .env
 tests/          run with: pip install pytest && pytest

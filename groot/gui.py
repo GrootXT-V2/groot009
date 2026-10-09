@@ -251,6 +251,30 @@ def check_qt_starts() -> None:
              + USE_OLDER_PYTHON)
 
 
+def start_notification_watcher(session, speaker, robot):
+    """Read new notifications aloud; hold them while you're talking to Groot."""
+    from .notifications import NotificationWatcher, Notifications, summarize
+
+    held = []
+
+    def announce(new):
+        if session.active:
+            held.extend(new)
+            return
+        batch = held + new
+        held.clear()
+        if not batch:
+            return
+        text = summarize(batch)
+        print(f"[notification] {text}")
+        robot.set_text(text, seconds=12)
+        speaker.say(text)
+
+    watcher = NotificationWatcher(Notifications(), announce)
+    watcher.start()
+    return watcher
+
+
 def run_gui(config, brain_kind: str) -> None:
     prepare_qt()
     if sys.platform == "darwin":
@@ -290,6 +314,8 @@ def run_gui(config, brain_kind: str) -> None:
                               robot.set_state, robot.set_text, name=config.name,
                               groot_mode=config.i_am_groot)
             robot.set_session(session)
+            if config.read_notifications and sys.platform == "darwin":
+                robot.set_watcher(start_notification_watcher(session, speaker, robot))
             robot.set_state("idle")
             robot.set_text('Say "Hey Groot" or click me!', seconds=6)
             session.launch()

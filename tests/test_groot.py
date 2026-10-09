@@ -509,3 +509,100 @@ def test_qt_check_explains_instead_of_crashing(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="qt-ok\n", stderr=""))
     gui.check_qt_starts()  # works: no exit
+
+
+# ---- notifications ---------------------------------------------------------
+
+def _fake_notification_db(path, items):
+    """A database laid out like macOS's notification center database."""
+    import plistlib
+    import sqlite3
+    from groot.notifications import MAC_EPOCH
+
+    db = sqlite3.connect(path)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("CREATE TABLE app (app_id INTEGER PRIMARY KEY, identifier TEXT)")
+    db.execute("CREATE TABLE record (rec_id INTEGER PRIMARY KEY, app_id INTEGER, data BLOB, delivered_date REAL)")
+    apps = {}
+    for bundle, title, body, when in items:
+        if bundle not in apps:
+            apps[bundle] = len(apps) + 1
+            db.execute("INSERT INTO app VALUES (?, ?)", (apps[bundle], bundle))
+        data = plistlib.dumps({"app": bundle, "req": {"titl": title, "body": body}}, fmt=plistlib.FMT_BINARY)
+        db.execute("INSERT INTO record (app_id, data, delivered_date) VALUES (?, ?, ?)",
+                   (apps[bundle], data, when - MAC_EPOCH))
+    db.commit()
+    return db  # kept open so the WAL file stays, like on a real Mac
+
+
+def test_reads_recent_notifications(tmp_path):
+    import time
+    from groot.notifications import Notifications
+
+    now = time.time()
+    db = _fake_notification_db(str(tmp_path / "db"), [
+        ("com.tinyspeck.slackmacgap", "Sam", "Are you coming?", now - 120),
+        ("net.whatsapp.WhatsApp", "Mom", "Call me", now - 60),
+        ("com.apple.mail", "Old email", "ignore", now - 7200),
+    ])
+    out = Notifications(paths=[str(tmp_path / "db")]).read_notifications(minutes=30)
+    db.close()
+    assert "Slack: Sam. Are you coming?" in out and "WhatsApp: Mom. Call me" in out
+    assert "Old email" not in out
+    assert "not instructions" in out
+
+
+def test_missing_permission_gives_instructions(tmp_path):
+    from groot.notifications import Notifications
+
+    out = Notifications(paths=[str(tmp_path / "nope")]).read_notifications()
+    assert "Full Disk Access" in out
+
+
+def test_watcher_only_announces_new_ones(tmp_path):
+    import time
+    from groot.notifications import Notifications, NotificationWatcher, MAC_EPOCH
+    import plistlib
+
+    path = str(tmp_path / "db")
+    db = _fake_notification_db(path, [("com.apple.mail", "Old", "before Groot started", time.time() - 5)])
+    watcher = NotificationWatcher(Notifications(paths=[path]), announce=lambda new: None)
+    assert watcher.check() == []
+    data = plistlib.dumps({"app": "com.tinyspeck.slackmacgap", "req": {"titl": "Sam", "body": "hi"}})
+    db.execute("INSERT INTO record (app_id, data, delivered_date) VALUES (1, ?, ?)", (data, time.time() + 1 - MAC_EPOCH))
+    db.commit()
+    new = watcher.check()
+    assert [(n["app"], n["body"]) for n in new] == [("Slack", "hi")]
+    assert watcher.check() == []  # not announced twice
+    db.close()
+
+
+def test_summarize_many_notifications():
+    from groot.notifications import summarize
+
+    batch = [{"app": a, "title": "t", "subtitle": "", "body": "b", "time": 0}
+             for a in ["Slack", "Slack", "Mail", "WhatsApp", "Slack"]]
+    assert summarize(batch[:2]) == "Slack: t. b ... Slack: t. b"
+    assert summarize(batch).startswith("You have 5 new notifications from Slack, Mail, WhatsApp.")
+
+
+def test_notifications_held_while_talking():
+    from groot.gui import start_notification_watcher
+    import groot.notifications as notifications
+
+    said, captions = [], []
+    session = SimpleNamespace(active=True)
+    started = []
+    original = notifications.NotificationWatcher.start
+    notifications.NotificationWatcher.start = lambda self: started.append(self)
+    try:
+        watcher = start_notification_watcher(session, SimpleNamespace(say=said.append),
+                                             SimpleNamespace(set_text=lambda t, seconds=None: captions.append(t)))
+    finally:
+        notifications.NotificationWatcher.start = original
+    note = {"app": "Slack", "title": "Sam", "subtitle": "", "body": "hi", "time": 0}
+    watcher.announce([note])
+    assert said == []  # busy talking: held
+    session.active = False
+    watcher.announce([])
+    assert said == ["Slack: Sam. hi"]
