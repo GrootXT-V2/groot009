@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click this file in Finder to start the floating Groot bubble.
+# Double-click this file in Finder to start the Groot desktop robot.
 cd "$(dirname "$0")"
 if [ ! -d .venv ]; then
   echo "First-time setup..."

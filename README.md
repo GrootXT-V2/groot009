@@ -69,7 +69,7 @@ Things to try:
 - "Hey Groot, new conversation" — forgets the chat so far
 - "Hey Groot, goodbye" — quits (or press Ctrl+C)
 
-## Floating bubble (Mac) 🌱
+## Desktop robot (Mac) 🤖
 
 ```bash
 python -m groot --gui
@@ -78,16 +78,20 @@ python -m groot --gui
 Or just **double-click `Groot.command`** in Finder. The first time, macOS may
 block it: right-click it → **Open** → **Open**.
 
-A little Groot bubble appears in the corner of your screen, on top of other windows:
+A little robot appears and plays around your screen — walking, looking around,
+waving, jumping and dancing.
 
-- **Click it** → Groot says hi and listens. Just talk — no wake word needed.
-- **Say "stop"** (or "that's all", "goodbye") or **click it again** → Groot stops, even mid-sentence.
-- **Drag it** to move it. **Right-click** (or Ctrl+click) → Quit.
-- Colors: ⚪ sleeping · 🟢 listening · 🟡 thinking · 🔵 talking
-- Right-click menu extras:
-  - **Little Groot voice** (on by default) — a male voice made higher and smaller, like little Groot
-  - **"I am Groot" mode** — Groot only says "I am Groot" (excited, curious or
-    long-winded to match the answer), and the real answer appears as text
+- **Say "Hey Groot"** → it stops, looks at you and listens. You can also ask
+  straight away: "Hey Groot, what time is it?"
+- **Say "stop"** (or "you can stop", "that's all", "goodbye") → it goes back to playing.
+- **Click it** to start or stop talking. **Drag it** to pick it up and move it.
+- **Right-click** (or Ctrl+click) for the menu: Stay still, Little Groot voice,
+  "I am Groot" mode, Quit.
+- Eye colors: 🔵 playing · 🟢 listening · 🟡 thinking · 🩵 talking
+
+While it's playing, Groot listens for "Hey Groot" using the same speech
+recognition as the rest of the app (Google's free service by default, or
+offline Whisper with `GROOT_STT=whisper`).
 
 If it says it needs Tkinter: `brew install python-tk`, then delete the `.venv`
 folder and set it up again.

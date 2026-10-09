@@ -157,56 +157,80 @@ def test_mac_speaker_uses_say_every_time(monkeypatch):
 def test_stop_commands():
     from groot.gui import is_stop_command
 
-    for text in ["stop", "Stop.", "Groot, stop!", "stop talking please", "That's all", "goodbye"]:
+    for text in ["stop", "Stop.", "Groot, stop!", "stop talking please", "That's all", "goodbye",
+                 "you can stop", "OK you can stop now", "okay stop"]:
         assert is_stop_command(text), text
-    for text in ["what's the weather", "don't stop the music", "tell me about bus stops"]:
+    for text in ["what's the weather", "don't stop the music", "tell me about bus stops",
+                 "where is the nearest bus stop near my house today"]:
         assert not is_stop_command(text), text
 
 
-def _run_session(heard_items):
-    import threading
+def test_find_wake_word():
+    from groot.gui import find_wake_word
+
+    assert find_wake_word("Hey Groot") == ""
+    assert find_wake_word("hey groot what time is it") == "what time is it"
+    assert find_wake_word("Hey group, tell me a joke") == "tell me a joke"  # common mishearing
+    assert find_wake_word("groot") == ""
+    assert find_wake_word("the root of the problem") is None  # "root" needs a "hey" before it
+    assert find_wake_word("what is the weather") is None
+
+
+class _Script:
+    """Feeds heard phrases to a Session, then quits it."""
+
+    def __init__(self, session_factory, heard):
+        self.heard = iter(heard)
+        self.said, self.states, self.shown = [], [], []
+        self.speaker = SimpleNamespace(say=self.said.append, stop=lambda: None)
+        self.session = session_factory(self.speaker, self.listen, self.states.append, self.shown.append)
+
+    def listen(self, timeout=None):
+        item = next(self.heard, None)
+        if item is None:
+            self.session._quit.set()
+            return ""
+        if callable(item):
+            return item()
+        return item
+
+
+def _session(heard, groot_mode=False):
     from groot.gui import Session
 
-    heard = iter(heard_items)
-    said, states, done = [], [], threading.Event()
-
-    class FakeSpeaker:
-        def say(self, text):
-            said.append(text)
-
-        def stop(self):
-            pass
-
-    def listen(timeout=None):
-        try:
-            return next(heard)
-        except StopIteration:
-            done.set()
-            return ""
-
     brain = SimpleNamespace(reply=lambda text: f"echo: {text}")
-    session = Session(brain, FakeSpeaker(), listen, states.append, lambda text: None)
-    session.start()
-    return session, said, states, done
+    script = _Script(lambda speaker, listen, on_state, on_text:
+                     Session(brain, speaker, listen, on_state, on_text, groot_mode=groot_mode), heard)
+    return script
 
 
-def test_session_talks_until_user_says_stop():
-    session, said, states, _ = _run_session(["", "hello", "stop", "never heard"])
-    for _ in range(100):
-        if not session.active:
-            break
-        import time; time.sleep(0.01)
-    assert not session.active
-    assert said == ["Hi! I'm listening.", "echo: hello", "Okay, talk to you later."]
-    assert states[-1] == "idle"
+def test_robot_ignores_chatter_wakes_on_hey_groot_and_stops():
+    script = _session(["what a nice day", "hey groot", "hello", "you can stop", "hello again"])
+    script.session.run_forever()
+    assert script.said == ["Hi! I'm listening.", "echo: hello",
+                           "Okay! I'll go play. Say hey Groot if you need me."]
+    assert not script.session.active  # "hello again" was ignored: no wake word
+    assert script.states[-1] == "idle"
 
 
-def test_session_stops_when_clicked_again():
-    session, said, states, done = _run_session([])
-    assert done.wait(1)
-    session.toggle()  # second click
-    assert not session.active
-    assert states[-1] == "idle"
+def test_hey_groot_with_a_question_answers_right_away():
+    script = _session(["hey groot what time is it", "stop"])
+    script.session.run_forever()
+    assert script.said[0] == "echo: what time is it"
+
+
+def test_click_wakes_and_click_again_stops():
+    script = None
+
+    def click():
+        script.session.toggle()
+        return ""
+
+    script = _session([click, "", click])
+    script.session.run_forever()
+    assert script.said == ["Hi! I'm listening."]
+    assert not script.session.active
+    assert script.states[-1] == "idle"
 
 
 def test_i_am_groot_matches_mood():
@@ -261,22 +285,10 @@ def test_groot_voice_records_deepens_and_plays(monkeypatch):
 
 
 def test_session_groot_mode_speaks_groot_but_shows_answer():
-    import time
-    from groot.gui import Session
-
-    spoken, shown = [], []
-    heard = iter(["what time is it", "stop"])
-    speaker = SimpleNamespace(say=spoken.append, stop=lambda: None)
-    brain = SimpleNamespace(reply=lambda text: "It is 3 PM.")
-    session = Session(brain, speaker, lambda timeout=None: next(heard, ""), lambda s: None, shown.append,
-                      groot_mode=True)
-    session.start()
-    for _ in range(100):
-        if not session.active:
-            break
-        time.sleep(0.01)
-    assert spoken == ["I am Groot!", "I am Groot.", "I am Groot."]
-    assert "Groot: It is 3 PM." in shown
+    script = _session(["hey groot what time is it", "stop"], groot_mode=True)
+    script.session.run_forever()
+    assert script.said == ["I am Groot.", "I am Groot!"]
+    assert "Groot: echo: what time is it" in script.shown
 
 
 def test_split_sentences():

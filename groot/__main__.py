@@ -67,7 +67,7 @@ def make_brain(config: Config, kind: str, skills: Skills):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Groot, your personal voice assistant")
-    parser.add_argument("--gui", action="store_true", help="show a floating Groot button: click to talk, click again to stop")
+    parser.add_argument("--gui", action="store_true", help="show the Groot desktop robot: say \"Hey Groot\" or click it to talk")
     parser.add_argument("--text", action="store_true", help="type instead of talking (no microphone needed)")
     parser.add_argument("--mute", action="store_true", help="print replies instead of speaking them")
     parser.add_argument("--no-wake", action="store_true", help="don't require the wake word")
