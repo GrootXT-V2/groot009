@@ -167,14 +167,44 @@ class Session:
         self.speaker.say(i_am_groot(text) if self.groot_mode else text)
 
 
-def run_gui(config, brain_kind: str) -> None:
+REINSTALL_QT = (
+    "Run these, then start Groot again:\n"
+    "  pip uninstall -y PySide6 PySide6-Essentials PySide6-Addons shiboken6\n"
+    "  pip install --no-cache-dir PySide6"
+)
+
+
+def prepare_qt() -> None:
+    """Point Qt at PySide6's own plugins.
+
+    Without this, Qt on a Mac can look in the wrong place (for example a
+    Homebrew Qt) and crash with 'Could not find the Qt platform plugin "cocoa"'.
+    """
+    import glob
+    import os
+
     try:
-        from PySide6 import QtWidgets
+        import PySide6
     except ImportError:
-        sys.exit(
-            "The desktop robot needs PySide6.\n"
-            "Run:  pip install -r requirements.txt"
-        )
+        sys.exit("The desktop robot needs PySide6.\nRun:  pip install -r requirements.txt")
+
+    if sys.platform != "darwin":
+        return
+    for var in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_PLATFORM"):
+        os.environ.pop(var, None)  # settings left behind by other Qt installs
+    base = os.path.dirname(PySide6.__file__)
+    for platforms in glob.glob(os.path.join(base, "**", "platforms"), recursive=True):
+        if glob.glob(os.path.join(platforms, "libqcocoa*")):
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = platforms
+            os.environ["QT_PLUGIN_PATH"] = os.path.dirname(platforms)
+            return
+    sys.exit(f"PySide6 is installed but its Mac display plugin is missing (looked in {base}).\n"
+             + REINSTALL_QT)
+
+
+def run_gui(config, brain_kind: str) -> None:
+    prepare_qt()
+    from PySide6 import QtWidgets
     import signal
 
     from .__main__ import make_brain

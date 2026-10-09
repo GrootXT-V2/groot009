@@ -363,3 +363,21 @@ def test_natural_voice_falls_back_to_mac_when_offline(monkeypatch):
     speaker.say("hello")
     assert ran == [["say", "-r", "180", "hello"]]
     assert not speaker._can_use_edge()  # don't retry right away
+
+
+def test_prepare_qt_points_mac_at_pyside_plugins(tmp_path, monkeypatch):
+    import os
+    import sys as _sys
+    import types
+    import groot.gui as gui
+
+    plugins = tmp_path / "PySide6" / "Qt" / "plugins" / "platforms"
+    plugins.mkdir(parents=True)
+    (plugins / "libqcocoa.dylib").write_text("")
+    monkeypatch.setitem(_sys.modules, "PySide6", types.SimpleNamespace(__file__=str(tmp_path / "PySide6" / "__init__.py")))
+    monkeypatch.setattr(gui.sys, "platform", "darwin")
+    monkeypatch.setenv("QT_PLUGIN_PATH", "/opt/homebrew/share/qt/plugins")
+    monkeypatch.setenv("QT_QPA_PLATFORM_PLUGIN_PATH", "")  # restored after the test
+    gui.prepare_qt()
+    assert os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] == str(plugins)
+    assert os.environ["QT_PLUGIN_PATH"] == str(plugins.parent)
