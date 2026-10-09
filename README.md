@@ -78,8 +78,9 @@ python -m groot --gui
 Or just **double-click `Groot.command`** in Finder. The first time, macOS may
 block it: right-click it → **Open** → **Open**.
 
-A little robot appears and plays around your screen — walking, looking around,
-waving, jumping and dancing.
+A little robot appears at the bottom of your screen and plays — walking back and
+forth, looking around, waving, jumping and dancing. Pick it up and drop it, and
+it falls back down.
 
 - **Say "Hey Groot"** → it stops, looks at you and listens. You can also ask
   straight away: "Hey Groot, what time is it?"
@@ -91,7 +92,8 @@ waving, jumping and dancing.
 
 While it's playing, Groot listens for "Hey Groot" using the same speech
 recognition as the rest of the app (Google's free service by default, or
-offline Whisper with `GROOT_STT=whisper`).
+offline Whisper with `GROOT_STT=whisper`). Everything it hears is printed in
+Terminal as `[heard] ...`, so you can check it's picking you up.
 
 The robot window uses Qt (PySide6), installed by `pip install -r requirements.txt`.
 
@@ -118,6 +120,7 @@ The robot window uses Qt (PySide6), installed by `pip install -r requirements.tx
 | `GROOT_VOICE_PITCH` | `1.25` | Higher = smaller, cuter voice. `1.0` normal, `0.8` big deep Groot |
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
+| `GROOT_ROBOT_SIZE` | `0.6` | Desktop robot size (`1.0` = big) |
 | `GROOT_CITY` | — | Home city for weather |
 
 Notes are saved in `~/.groot/notes.json`.

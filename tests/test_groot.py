@@ -171,6 +171,8 @@ def test_find_wake_word():
     assert find_wake_word("Hey Groot") == ""
     assert find_wake_word("hey groot what time is it") == "what time is it"
     assert find_wake_word("Hey group, tell me a joke") == "tell me a joke"  # common mishearing
+    assert find_wake_word("Hey Google") == ""  # Google's favorite mishearing
+    assert find_wake_word("hey great what's the time") == "what's the time"
     assert find_wake_word("groot") == ""
     assert find_wake_word("the root of the problem") is None  # "root" needs a "hey" before it
     assert find_wake_word("what is the weather") is None

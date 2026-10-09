@@ -26,16 +26,24 @@ EYE_COLORS = {  # glow color of the eyes for each mood
 }
 
 
-class RobotWindow(QtWidgets.QWidget):
-    W, H = 240, 310
-    TICK_MS = 40
-    SPEED = 2.4  # pixels per tick while walking
+# The robot is designed on a 240 x 310 grid; this part of it holds the robot
+DESIGN_LEFT, DESIGN_TOP, DESIGN_W, DESIGN_H = 20, 70, 200, 232
 
-    def __init__(self, name="Groot"):
+
+class RobotWindow(QtWidgets.QWidget):
+    CAPTION_H = 64  # room above the robot for its speech bubble
+    TICK_MS = 33
+    GRAVITY = 1.2
+
+    def __init__(self, name="Groot", size=0.6):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)  # see-through: only the robot shows
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setWindowTitle(name)
+        self.scale = size
+        self.W = int(max(DESIGN_W * size, 190))
+        self.H = int(self.CAPTION_H + DESIGN_H * size)
+        self.speed = 1.6 * max(size, 0.4)  # walking speed in pixels per frame
         self.setFixedSize(self.W, self.H)
 
         self.name = name
@@ -61,11 +69,15 @@ class RobotWindow(QtWidgets.QWidget):
         self.pose = {}
         self.dragging = False
         self._press_pos = None
+        self.step = 0.0  # walking cycle
+        self.turn = 0.0  # -1 facing left, 0 facing you, 1 facing right
+        self.fall_speed = 0.0
 
         area = QtGui.QGuiApplication.primaryScreen().availableGeometry()  # without menu bar and Dock
         self.area = area
+        self.floor = float(area.bottom() - self.H + 1)  # Groot walks along the bottom of the screen
         self.x = float(area.right() - self.W - 30)
-        self.y = float(area.bottom() - self.H - 10)
+        self.y = self.floor
         self.move(int(self.x), int(self.y))
 
         self.timer = QtCore.QTimer(self)
@@ -109,6 +121,7 @@ class RobotWindow(QtWidgets.QWidget):
         self._press_pos = None
         self.dragging = False
         if self._moved:
+            self.fall_speed = 0.0  # let go: Groot falls back down to the floor
             self._new_action("rest")
         else:
             self.toggle()
@@ -152,9 +165,12 @@ class RobotWindow(QtWidgets.QWidget):
         action = {"name": name, "start": now}
         if name == "walk":
             a = self.area
-            action["target"] = (random.uniform(a.left(), a.right() - self.W),
-                                random.uniform(a.top(), a.bottom() - self.H))
-            action["until"] = now + 20
+            distance = random.uniform(120, 500) * random.choice((-1, 1))
+            target = min(max(self.x + distance, a.left()), a.right() - self.W)
+            if abs(target - self.x) < 60:  # at an edge: walk the other way
+                target = min(max(self.x - distance, a.left()), a.right() - self.W)
+            action["target"] = target
+            action["until"] = now + 30
         else:
             action["until"] = now + {"rest": random.uniform(2, 4), "look": 2.5, "wave": 2,
                                      "jump": 1.2, "dance": 3}[name]
@@ -163,18 +179,31 @@ class RobotWindow(QtWidgets.QWidget):
     def _place(self):
         a = self.area
         self.x = min(max(self.x, a.left()), a.right() - self.W)
-        self.y = min(max(self.y, a.top()), a.bottom() - self.H)
+        self.y = min(max(self.y, a.top()), self.floor)
         self.move(int(self.x), int(self.y))
 
     def _update_behaviour(self, now):
         """Move the robot and return its pose for this frame."""
-        pose = {"bob": 0.0, "legs": 0.0, "left_arm": 115.0, "right_arm": 65.0, "lift": 0.0}
+        pose = {"bob": 0.0, "legs": 0.0, "left_arm": 112.0, "right_arm": 68.0, "lift": 0.0, "lean": 0.0}
         awake = self.state not in ("idle", "loading", "error")
+        facing = 0.0
 
-        if self.dragging:  # picked up: arms flail a little
+        if self.dragging:  # picked up: legs dangle, arms flail a little
             pose.update(left_arm=200 + 10 * math.sin(self.t * 6), right_arm=-20 - 10 * math.sin(self.t * 6))
             self.look = (0, -4)
+            self.turn *= 0.8
             return pose
+
+        if self.y < self.floor - 0.5:  # falling back down after being dropped
+            self.fall_speed += self.GRAVITY
+            self.y = min(self.floor, self.y + self.fall_speed)
+            self._place()
+            pose.update(left_arm=160, right_arm=20)
+            self.look = (0, -3)
+            return pose
+        if self.fall_speed > 0:  # just landed: a little squash
+            self.fall_speed = 0.0
+            self._new_action("rest")
 
         if awake or self.stay_still:
             self.look = (self.look[0] * 0.8, self.look[1] * 0.8)
@@ -182,47 +211,52 @@ class RobotWindow(QtWidgets.QWidget):
                 self.look = (4 * math.sin(self.t * 1.5), -5)
                 pose["right_arm"] = -40
             elif self.state == "speaking":
-                pose["bob"] = 1.5 * math.sin(self.t * 8)
-                pose["left_arm"] = 115 + 12 * math.sin(self.t * 3)
+                pose["bob"] = 1.2 * math.sin(self.t * 8)
+                pose["left_arm"] = 112 + 10 * math.sin(self.t * 3)
             elif self.state == "listening":
                 pose["bob"] = math.sin(self.t * 2)
-            return pose
+        else:
+            name = self.action["name"]
+            elapsed = now - self.action["start"]
+            if now > self.action["until"]:
+                self._new_action()
+            elif name == "walk":
+                dx = self.action["target"] - self.x
+                if abs(dx) < self.speed:
+                    self._new_action("rest")
+                else:
+                    direction = 1 if dx > 0 else -1
+                    # ease in for the first half second so it doesn't start abruptly
+                    speed = self.speed * min(1.0, elapsed / 0.5)
+                    self.x += direction * speed
+                    self._place()
+                    self.step += speed * 0.12 / max(self.scale, 0.4)
+                    facing = direction
+                    swing = math.sin(self.step)
+                    pose["legs"] = swing
+                    pose["bob"] = -2.5 * abs(swing)  # up on each step
+                    pose["lean"] = 4 * direction
+                    pose["left_arm"] = 112 - 14 * swing
+                    pose["right_arm"] = 68 - 14 * swing
+                    self.look = (4 * direction, 0)
+            elif name == "look":
+                self.look = (6 * math.sin(elapsed * 2.5), 0)
+            elif name == "wave":
+                pose["right_arm"] = -55 + 25 * math.sin(elapsed * 10)
+                self.look = (0, 0)
+            elif name == "jump":
+                pose["lift"] = 22 * max(0.0, math.sin(elapsed * math.pi / 0.6))
+                pose["left_arm"] = 160
+                pose["right_arm"] = 20
+            elif name == "dance":
+                pose["bob"] = 3 * math.sin(elapsed * 9)
+                pose["left_arm"] = 150 + 35 * math.sin(elapsed * 9)
+                pose["right_arm"] = 30 - 35 * math.sin(elapsed * 9)
+                pose["lean"] = 5 * math.sin(elapsed * 4.5)
+            else:  # rest
+                self.look = (self.look[0] * 0.9, self.look[1] * 0.9)
 
-        name = self.action["name"]
-        elapsed = now - self.action["start"]
-        if now > self.action["until"]:
-            self._new_action()
-        elif name == "walk":
-            tx, ty = self.action["target"]
-            dx, dy = tx - self.x, ty - self.y
-            dist = math.hypot(dx, dy)
-            if dist < self.SPEED:
-                self._new_action("rest")
-            else:
-                self.x += self.SPEED * dx / dist
-                self.y += self.SPEED * dy / dist
-                self._place()
-                self.look = (5 * max(-1.0, min(1.0, dx / 60)), 0)
-                pose["legs"] = math.sin(self.t * 10)
-                pose["bob"] = -3 * abs(math.sin(self.t * 10))
-                pose["left_arm"] = 115 + 15 * math.sin(self.t * 10)
-                pose["right_arm"] = 65 + 15 * math.sin(self.t * 10)
-        elif name == "look":
-            self.look = (6 * math.sin(elapsed * 2.5), 0)
-        elif name == "wave":
-            pose["right_arm"] = -55 + 25 * math.sin(elapsed * 10)
-            self.look = (0, 0)
-        elif name == "jump":
-            pose["lift"] = 25 * max(0.0, math.sin(elapsed * math.pi / 0.6))
-            pose["left_arm"] = 160
-            pose["right_arm"] = 20
-        elif name == "dance":
-            pose["bob"] = 4 * math.sin(elapsed * 9)
-            pose["left_arm"] = 150 + 40 * math.sin(elapsed * 9)
-            pose["right_arm"] = 30 - 40 * math.sin(elapsed * 9)
-            pose["legs"] = 0.5 * math.sin(elapsed * 9)
-        else:  # rest
-            self.look = (self.look[0] * 0.9, self.look[1] * 0.9)
+        self.turn += (facing - self.turn) * 0.15  # turn smoothly toward where it's going
         return pose
 
     def _tick(self):
@@ -258,8 +292,20 @@ class RobotWindow(QtWidgets.QWidget):
         p.fillRect(self.rect(), Qt.transparent)  # clear the last frame completely
         p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
         if self.pose:
-            self._draw_robot(p, time.monotonic())
-            self._draw_caption(p, time.monotonic())
+            now = time.monotonic()
+            p.save()
+            # robot coordinates are on a 240 x 310 grid; scale them into the window
+            p.translate(self.W / 2 - (DESIGN_LEFT + DESIGN_W / 2) * self.scale,
+                        self.CAPTION_H - DESIGN_TOP * self.scale)
+            p.scale(self.scale, self.scale)
+            lean = self.pose.get("lean", 0.0)
+            if lean:  # tilt the whole robot around its feet
+                p.translate(120, 298)
+                p.rotate(lean)
+                p.translate(-120, -298)
+            self._draw_robot(p, now)
+            p.restore()
+            self._draw_caption(p, now)
         p.end()
 
     @staticmethod
@@ -290,13 +336,19 @@ class RobotWindow(QtWidgets.QWidget):
         oy = pose["bob"] - pose["lift"]  # vertical offset of the whole robot
         glow = EYE_COLORS.get(self.state, EYE_COLORS["idle"])
 
-        # legs and feet
+        turn = self.turn  # face and feet shift toward where Groot is walking
+
+        # legs and feet: each step lifts one foot and moves it forward
         for side, phase in ((-1, pose["legs"]), (1, -pose["legs"])):
-            lx = cx + side * 18
-            up = 0 if self.dragging else max(0.0, phase) * 7
-            self._rrect(p, lx - 10, 248 + oy - up, lx + 10, 284 + oy - up, 8, WHITE, SHADE, 2)
-            self._line(p, lx - 7, 268 + oy - up, lx + 7, 268 + oy - up, "#e0b84a", 2)
-            self._rrect(p, lx - 15, 280 + oy - up, lx + 15, 298 + oy - up, 8, DARK)
+            lx = cx + side * 17 + turn * 6 * phase
+            up = 0 if self.dragging else max(0.0, phase) * 8
+            dangle = 6 if self.dragging else 0
+            top = 248 + oy
+            foot = 280 + oy - up + dangle
+            self._rrect(p, lx - 10, top, lx + 10, foot + 4, 8, WHITE, SHADE, 2)
+            self._line(p, lx - 7, (top + foot) / 2 + 2, lx + 7, (top + foot) / 2 + 2, "#e0b84a", 2)
+            toe = turn * 5
+            self._rrect(p, lx - 15 + toe, foot, lx + 15 + toe, foot + 18, 8, DARK)
 
         # arms (behind the body)
         for shoulder_x, angle in ((cx - 36, pose["left_arm"]), (cx + 36, pose["right_arm"])):
@@ -320,15 +372,18 @@ class RobotWindow(QtWidgets.QWidget):
         p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(cx, ly - d), QtCore.QPointF(cx + d, ly),
                                        QtCore.QPointF(cx, ly + d), QtCore.QPointF(cx - d, ly)]))
 
-        # head
-        for side in (-1, 1):  # headphones
-            hx = cx + side * 70
+        # head (the face slides sideways a little when Groot turns)
+        fx = turn * 9
+        for side in (-1, 1):  # headphones: the one on the far side tucks behind the head
+            hx = cx + side * 70 - turn * 6 + (side * turn > 0) * side * -4
             self._rrect(p, hx - 10, 124 + oy, hx + 10, 174 + oy, 9, DARK)
         self._rrect(p, cx - 66, 98 + oy, cx + 66, 196 + oy, 42, WHITE, SHADE, 2)
         for side in (-1, 1):  # light strip on the headphones
-            hx = cx + side * 74
+            if side * turn > 0.5:
+                continue
+            hx = cx + side * 74 - turn * 6
             self._line(p, hx, 134 + oy, hx, 164 + oy, glow, 2)
-        self._rrect(p, cx - 30, 110 + oy, cx + 30, 117 + oy, 3, DARK)  # forehead slit
+        self._rrect(p, cx - 30 + fx, 110 + oy, cx + 30 + fx, 117 + oy, 3, DARK)  # forehead slit
 
         # eyes
         resting = self.state == "idle" and self.action["name"] == "rest" and not self.dragging
@@ -342,7 +397,7 @@ class RobotWindow(QtWidgets.QWidget):
             open_amount = 1.0
         look_x, look_y = self.look
         for side in (-1, 1):
-            ex, ey = cx + side * 30, 148 + oy
+            ex, ey = cx + side * 30 + fx, 148 + oy
             if open_amount < 0.2:
                 self._line(p, ex - 18, ey, ex + 18, ey, EYE_DARK, 4)
                 continue
@@ -358,10 +413,10 @@ class RobotWindow(QtWidgets.QWidget):
         my = 180 + oy
         if self.state == "speaking":
             for i, level in enumerate(self.mouth):
-                bx = cx - 12 + i * 6
+                bx = cx - 12 + i * 6 + fx
                 self._line(p, bx, my - 5 * level, bx, my + 5 * level, glow, 3)
         else:
-            self._rrect(p, cx - 8, my - 2, cx + 8, my + 2, 2, DARK)
+            self._rrect(p, cx - 8 + fx, my - 2, cx + 8 + fx, my + 2, 2, DARK)
 
         # sleepy zzz while resting
         if resting:
@@ -376,18 +431,20 @@ class RobotWindow(QtWidgets.QWidget):
         if not self.caption or now > self.caption_until:
             return
         caption = self.caption if len(self.caption) <= 110 else self.caption[:107] + "..."
-        font = QtGui.QFont("Helvetica", 12)
+        font = QtGui.QFont("Helvetica", 11)
         p.setFont(font)
         flags = Qt.TextWordWrap | Qt.AlignCenter
-        text_rect = QtGui.QFontMetrics(font).boundingRect(QtCore.QRect(0, 0, self.W - 40, 200), flags, caption)
+        text_rect = QtGui.QFontMetrics(font).boundingRect(QtCore.QRect(0, 0, self.W - 24, 200), flags, caption)
         cx = self.W / 2
-        bottom = 82
-        rect = QRectF(cx - text_rect.width() / 2 - 10, bottom - text_rect.height() - 14,
-                      text_rect.width() + 20, text_rect.height() + 14)
-        self._rrect(p, rect.left(), rect.top(), rect.right(), rect.bottom(), 12, "#ffffff", SHADE, 1)
+        head_top = self.CAPTION_H + (98 - DESIGN_TOP) * self.scale
+        tip = head_top - 2
+        bottom = tip - 8
+        height = min(text_rect.height() + 12, bottom - 1)
+        rect = QRectF(cx - text_rect.width() / 2 - 8, bottom - height, text_rect.width() + 16, height)
+        self._rrect(p, rect.left(), rect.top(), rect.right(), rect.bottom(), 10, "#ffffff", SHADE, 1)
         p.setPen(Qt.NoPen)
         p.setBrush(QtGui.QColor("#ffffff"))
-        p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(cx - 8, bottom - 1), QtCore.QPointF(cx + 8, bottom - 1),
-                                       QtCore.QPointF(cx, bottom + 10)]))
+        p.drawPolygon(QtGui.QPolygonF([QtCore.QPointF(cx - 6, bottom - 1), QtCore.QPointF(cx + 6, bottom - 1),
+                                       QtCore.QPointF(cx, tip)]))
         p.setPen(QtGui.QColor("#1d232b"))
         p.drawText(rect, flags, caption)

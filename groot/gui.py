@@ -22,10 +22,15 @@ STOP_PHRASES = {
     "thats enough", "you can go", "you can go now", "go play", "go and play",
 }
 
-# Speech recognition often hears "Groot" as one of these
+# Speech recognition often hears "Groot" as one of these (Google loves "hey Google")
 GROOT_SOUNDS = {"groot", "grut", "grute", "groote", "grooot", "gruit", "group", "groups",
-                "root", "grout", "gru", "grew", "brute", "groove"}
-GREETINGS = {"hey", "hi", "hello", "ok", "okay", "a", "yo", "hay", "he", "hei", "oi"}
+                "root", "route", "grout", "gru", "grew", "brute", "brood", "groove", "google",
+                "great", "grow", "grows", "grove", "crude", "cute", "goot", "good", "true"}
+GREETINGS = {"hey", "hi", "hello", "ok", "okay", "a", "yo", "hay", "he", "hei", "oi", "hai", "eh"}
+
+
+def _sounds_like_groot(word: str) -> bool:
+    return word in GROOT_SOUNDS or (word.startswith("gr") and len(word) <= 7)
 
 
 def _clean(text: str) -> str:
@@ -48,7 +53,7 @@ def find_wake_word(text: str):
     ('' if nothing). Return None if Groot wasn't called."""
     words = _clean(text).split()
     for i, word in enumerate(words[:4]):
-        if word not in GROOT_SOUNDS:
+        if not _sounds_like_groot(word):
             continue
         greeted = i > 0 and words[i - 1] in GREETINGS
         if word == "groot" or greeted:
@@ -120,8 +125,9 @@ class Session:
         if self._awake.is_set() or not heard:
             return
         command = find_wake_word(heard)
+        # Shown in Terminal so you can see what the microphone picked up
+        print(f"[heard] {heard}" + ("  -> waking up!" if command is not None else ""))
         if command is not None:
-            print(f"Heard: {heard}")
             self.start(first_command=command or None)
 
     def _conversation_turn(self) -> None:
@@ -179,7 +185,7 @@ def run_gui(config, brain_kind: str) -> None:
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
     signal.signal(signal.SIGINT, signal.SIG_DFL)  # let Ctrl+C in Terminal quit
-    robot = RobotWindow(name=config.name)
+    robot = RobotWindow(name=config.name, size=config.robot_size)
     robot.show()
 
     def load():
