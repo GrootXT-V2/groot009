@@ -114,7 +114,8 @@ def main() -> None:
         def listen(timeout=None):
             return ears.listen(timeout=timeout)
 
-    skills = Skills(config.data_dir, default_city=config.city, announce=speak)
+    skills = Skills(config.data_dir, default_city=config.city, announce=speak,
+                    slack_token=config.slack_token)
     brain = make_brain(config, brain_kind, skills)
 
     try:

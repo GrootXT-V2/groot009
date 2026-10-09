@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -10,12 +11,64 @@ from pathlib import Path
 from typing import Callable
 
 
+CONFIRM_SECONDS = 120  # a waiting email/message is dropped after this long
+
+YES_WORDS = {"yes", "yeah", "yep", "yup", "sure", "send it", "do it", "go ahead", "confirm",
+             "ok", "okay", "yes please", "yes send it", "please do", "correct", "send"}
+NO_WORDS = {"no", "nope", "cancel", "don't", "dont", "don't send it", "do not send", "stop",
+            "never mind", "nevermind", "no thanks", "wait"}
+
+
 class Skills:
-    def __init__(self, data_dir: Path, default_city: str = "", announce: Callable[[str], None] = print):
+    def __init__(self, data_dir: Path, default_city: str = "", announce: Callable[[str], None] = print,
+                 slack_token: str = "", mac_apps: bool = None):
+        from .integrations import MAC_TOOLS, SLACK_TOOLS, MacApps, Slack, mac_available
+
         self.data_dir = Path(data_dir)
         self.default_city = default_city
         self.announce = announce
         self.notes_file = self.data_dir / "notes.json"
+        self.pending = None  # (description, action) waiting for the user to say yes
+
+        # extra abilities: (object with the methods, its tool schemas)
+        self.integrations = []
+        if mac_available() if mac_apps is None else mac_apps:
+            self.integrations.append((MacApps(self.ask_confirmation), MAC_TOOLS))
+        if slack_token:
+            self.integrations.append((Slack(slack_token, self.ask_confirmation), SLACK_TOOLS))
+
+    @property
+    def tools(self) -> list:
+        return TOOLS + [tool for _, tools in self.integrations for tool in tools]
+
+    # ---- confirming actions that send things on the user's behalf -----------
+
+    def ask_confirmation(self, description: str, action: Callable[[], str]) -> str:
+        self.pending = (description, action, time.monotonic())
+        return ("NOT DONE YET. Read this back to the user in one short sentence and ask them to say "
+                f"yes to confirm or no to cancel: I'm about to {description}")
+
+    def handle_confirmation(self, text: str):
+        """If something is waiting for a yes/no, handle the answer and return what to say.
+
+        Returns None when nothing is waiting (or the user said something else,
+        which cancels the waiting action to be safe)."""
+        if self.pending is None:
+            return None
+        description, action, asked_at = self.pending
+        self.pending = None
+        if time.monotonic() - asked_at > CONFIRM_SECONDS:
+            return None  # too old: never send something the user may have forgotten about
+        answer = " ".join(text.lower().replace(",", " ").replace(".", " ").replace("!", " ").split())
+        answer = answer.removeprefix("groot ").removeprefix("hey groot ")
+        if answer in YES_WORDS or answer.startswith(("yes ", "yeah ", "sure ")):
+            try:
+                return action()
+            except Exception as exc:
+                return f"Sorry, that didn't work: {exc}"
+        if answer in NO_WORDS or answer.startswith(("no ", "don't ", "cancel ")):
+            return "Okay, I cancelled it."
+        return None  # something else: the action is dropped and we carry on normally
 
     # ---- skills -------------------------------------------------------------
 
@@ -108,8 +161,11 @@ class Skills:
         self.notes_file.write_text(json.dumps(notes, indent=2), encoding="utf-8")
 
     def run(self, name: str, args: dict) -> str:
-        func = getattr(self, name, None)
-        if name not in TOOL_NAMES or func is None:
+        func = getattr(self, name, None) if name in TOOL_NAMES else None
+        for owner, tools in self.integrations:
+            if any(tool["name"] == name for tool in tools):
+                func = getattr(owner, name, None)
+        if func is None:
             return f"Unknown skill: {name}"
         try:
             return func(**args)

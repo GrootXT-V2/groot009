@@ -381,3 +381,114 @@ def test_prepare_qt_points_mac_at_pyside_plugins(tmp_path, monkeypatch):
     gui.prepare_qt()
     assert os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] == str(plugins)
     assert os.environ["QT_PLUGIN_PATH"] == str(plugins.parent)
+
+
+# ---- apps, email and Slack -------------------------------------------------
+
+def _skills_with_fake_mac(tmp_path):
+    from groot.integrations import MacApps
+
+    skills = Skills(tmp_path, mac_apps=False)
+    calls = []
+
+    def fake_applescript(script, *args, timeout=60):
+        calls.append((script, args))
+        return "sent"
+
+    mac = MacApps(skills.ask_confirmation, run=fake_applescript)
+    from groot.integrations import MAC_TOOLS
+    skills.integrations.append((mac, MAC_TOOLS))
+    return skills, calls
+
+
+def test_email_is_only_sent_after_yes(tmp_path):
+    skills, calls = _skills_with_fake_mac(tmp_path)
+    result = skills.run("send_email", {"to": "sam@example.com", "subject": "Hi", "body": "See you at 5"})
+    assert result.startswith("NOT DONE YET") and calls == []  # nothing sent yet
+    assert skills.handle_confirmation("Yes, send it.") == "Email sent to sam@example.com."
+    assert calls[0][1] == ("sam@example.com", "Hi", "See you at 5")  # passed as arguments, not code
+
+
+def test_email_cancelled_by_no_or_by_changing_subject(tmp_path):
+    skills, calls = _skills_with_fake_mac(tmp_path)
+    skills.run("send_email", {"to": "a@b.c", "subject": "x", "body": "y"})
+    assert skills.handle_confirmation("no") == "Okay, I cancelled it."
+    skills.run("send_email", {"to": "a@b.c", "subject": "x", "body": "y"})
+    assert skills.handle_confirmation("what's the weather") is None  # something else: dropped
+    assert skills.handle_confirmation("yes") is None  # a late "yes" sends nothing
+    assert calls == []
+
+
+def test_old_confirmation_expires(tmp_path, monkeypatch):
+    import groot.skills as skills_module
+
+    skills, calls = _skills_with_fake_mac(tmp_path)
+    skills.run("send_email", {"to": "a@b.c", "subject": "x", "body": "y"})
+    real = skills_module.time.monotonic
+    monkeypatch.setattr(skills_module.time, "monotonic", lambda: real() + 600)
+    assert skills.handle_confirmation("yes") is None
+    assert calls == []
+
+
+def test_stopping_the_robot_drops_unconfirmed_email(tmp_path):
+    from groot.gui import Session
+
+    skills, calls = _skills_with_fake_mac(tmp_path)
+    skills.run("send_email", {"to": "a@b.c", "subject": "x", "body": "y"})
+    brain = SimpleNamespace(skills=skills, reply=lambda text: "ok")
+    session = Session(brain, SimpleNamespace(say=lambda t: None, stop=lambda: None), lambda timeout=None: "",
+                      lambda s: None, lambda t: None)
+    session.stop()
+    assert skills.pending is None
+
+
+def test_mac_tools_offered_only_on_mac(tmp_path):
+    names = {t["name"] for t in Skills(tmp_path, mac_apps=True).tools}
+    assert {"open_app", "check_email", "send_email", "run_shortcut"} <= names
+    assert "open_app" not in {t["name"] for t in Skills(tmp_path, mac_apps=False).tools}
+
+
+def test_slack_read_and_confirmed_send(tmp_path):
+    from groot.integrations import SLACK_TOOLS, Slack
+
+    calls = []
+
+    def fake_call(token, method, params=None, post=False):
+        calls.append((method, params))
+        if method == "conversations.list":
+            return {"ok": True, "channels": [{"id": "C1", "name": "general"}]}
+        if method == "users.list":
+            return {"ok": True, "members": [{"id": "U1", "name": "sam", "real_name": "Sam Lee",
+                                             "profile": {"display_name": "Sam"}}]}
+        if method == "conversations.history":
+            return {"ok": True, "messages": [{"user": "U1", "text": "second"}, {"user": "U1", "text": "first"}]}
+        if method == "conversations.open":
+            return {"ok": True, "channel": {"id": "D1"}}
+        return {"ok": True}
+
+    skills = Skills(tmp_path, mac_apps=False)
+    skills.integrations.append((Slack("xoxp-test", skills.ask_confirmation, call=fake_call), SLACK_TOOLS))
+    assert "slack_send" in {t["name"] for t in skills.tools}
+    out = skills.run("slack_read", {"conversation": "#general"})
+    assert out.endswith("Sam: first\nSam: second")
+    assert skills.run("slack_send", {"to": "Sam", "text": "hello!"}).startswith("NOT DONE YET")
+    assert not any(m == "chat.postMessage" for m, _ in calls)
+    assert skills.handle_confirmation("yes") == "Sent to Sam on Slack."
+    assert ("chat.postMessage", {"channel": "D1", "text": "hello!"}) in calls
+
+
+def test_assistant_answers_confirmation_without_the_ai(tmp_path):
+    skills, calls = _skills_with_fake_mac(tmp_path)
+    skills.run("send_email", {"to": "a@b.c", "subject": "x", "body": "y"})
+    said = []
+    brain = SimpleNamespace(skills=skills, reply=lambda text: (_ for _ in ()).throw(AssertionError("AI was asked")))
+    config = SimpleNamespace(name="Groot", use_wake_word=False, wake_words=())
+    Assistant(config, brain, said.append, lambda timeout=None: "").handle("yes")
+    assert said == ["Email sent to a@b.c."]
+
+
+def test_media_control_only_known_apps(tmp_path):
+    skills, calls = _skills_with_fake_mac(tmp_path)
+    assert skills.run("media_control", {"action": "next", "app": "spotify"}) == "Next on Spotify."
+    assert calls[-1][0] == 'tell application "Spotify" to next track'
+    assert skills.run("media_control", {"action": "play", "app": 'x" to do shell script "rm'}) == "I can control Music or Spotify."

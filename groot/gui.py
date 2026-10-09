@@ -99,6 +99,9 @@ class Session:
     def stop(self) -> None:
         self._awake.clear()
         self.speaker.stop()
+        skills = getattr(self.brain, "skills", None)
+        if skills is not None:
+            skills.pending = None  # never keep an unconfirmed email/message around
         self.on_state("idle")
         self.on_text("")
 
@@ -150,6 +153,11 @@ class Session:
         if is_stop_command(heard):
             self._say("Okay! I'll go play. Say hey Groot if you need me.")
             self.stop()
+            return
+        skills = getattr(self.brain, "skills", None)
+        confirmed = skills.handle_confirmation(heard) if skills is not None else None
+        if confirmed is not None:  # the user answered yes/no to sending something
+            self._say(confirmed)
             return
         self.on_state("thinking")
         try:
@@ -230,7 +238,8 @@ def run_gui(config, brain_kind: str) -> None:
                 robot.set_text(f"{config.name}: {text}", seconds=8)
                 speaker.say(text)
 
-            skills = Skills(config.data_dir, default_city=config.city, announce=announce)
+            skills = Skills(config.data_dir, default_city=config.city, announce=announce,
+                            slack_token=config.slack_token)
             brain = make_brain(config, brain_kind, skills)
             robot.set_text("Checking microphone...")
             ears = Listener(engine=config.stt_engine, whisper_model=config.whisper_model)

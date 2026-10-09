@@ -52,6 +52,7 @@ class Config:
     i_am_groot: bool = field(default_factory=lambda: _bool("GROOT_I_AM_GROOT", False))
     voice_rate: int = field(default_factory=lambda: int(os.getenv("GROOT_VOICE_RATE", "180")))
     robot_size: float = field(default_factory=lambda: float(os.getenv("GROOT_ROBOT_SIZE", "0.6")))
+    slack_token: str = field(default_factory=lambda: os.getenv("SLACK_TOKEN", ""))
     city: str = field(default_factory=lambda: os.getenv("GROOT_CITY", ""))
     data_dir: Path = field(
         default_factory=lambda: Path(os.getenv("GROOT_DATA_DIR", Path.home() / ".groot"))

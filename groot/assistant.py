@@ -32,6 +32,11 @@ class Assistant:
             self.brain.reset()
             self.speak("Okay, starting fresh.")
             return True
+        skills = getattr(self.brain, "skills", None)
+        confirmed = skills.handle_confirmation(text) if skills is not None else None
+        if confirmed is not None:  # the user answered yes/no to sending something
+            self.speak(confirmed)
+            return True
         try:
             answer = self.brain.reply(text)
         except Exception as exc:

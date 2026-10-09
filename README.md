@@ -97,6 +97,50 @@ Terminal as `[heard] ...`, so you can check it's picking you up.
 
 The robot window uses Qt (PySide6), installed by `pip install -r requirements.txt`.
 
+## Your apps, email and Slack (Mac)
+
+Groot can use your Mac apps. Just ask:
+
+| Say | What happens |
+|---|---|
+| "Open Spotify" / "Quit Safari" | Opens or quits any app |
+| "Set the volume to 30" | Changes the volume |
+| "Play music" / "Next song on Spotify" | Controls Music or Spotify |
+| "Open my Downloads folder" | Opens a folder in Finder |
+| "Do I have any new emails?" | Lists unread email in the **Mail** app |
+| "Read the email from Sam" | Reads one out |
+| "Email sam@example.com that I'll be late" | Sends an email — **after you say "yes"** |
+| "What's on my calendar today?" | Reads today's events from **Calendar** |
+| "Remind me to buy milk" | Adds it to **Reminders** |
+| "Run my Morning shortcut" | Runs any shortcut from the **Shortcuts** app |
+
+**Email** works with any account in the Mail app (Gmail, Outlook, iCloud, work
+email): add yours in System Settings → Internet Accounts. The first time Groot
+uses Mail, Calendar, Reminders or Music, macOS asks whether Terminal may control
+it — click **OK**.
+
+**Any other app:** make a shortcut for it in the Shortcuts app (WhatsApp,
+Notes, HomeKit lights, Messages, …) and say "run my <name> shortcut".
+
+**Slack** (optional) needs a token:
+1. Go to <https://api.slack.com/apps> → **Create New App** → **From scratch**,
+   name it Groot and pick your workspace.
+2. **OAuth & Permissions** → **User Token Scopes** → add: `channels:history`,
+   `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`,
+   `im:write`, `users:read`, `chat:write`, `search:read`.
+3. Click **Install to Workspace** → **Allow** (a work Slack may need your
+   admin to approve it), then copy the **User OAuth Token** (`xoxp-...`).
+4. Put it in `.env`: `SLACK_TOKEN=xoxp-...`
+
+Then: "What's new in #general?", "Read my messages from Sam", "Search Slack
+for the deadline", "Tell Sam on Slack I'm on my way" (asks for "yes" first).
+
+**Safety:** Groot never sends an email or Slack message until you say "yes"
+to what it reads back. That check is in the code, not just the AI's
+instructions, so nothing in an email or message can trick it into sending.
+Saying anything else, saying "stop", or waiting 2 minutes cancels it. Keep
+your `.env` private: the Slack token can read and send your messages.
+
 ## Settings (`.env`)
 
 | Variable | Default | What it does |
@@ -121,6 +165,7 @@ The robot window uses Qt (PySide6), installed by `pip install -r requirements.tx
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
 | `GROOT_ROBOT_SIZE` | `0.6` | Desktop robot size (`1.0` = big) |
+| `SLACK_TOKEN` | — | Slack user token (`xoxp-...`) to let Groot read and send Slack messages |
 | `GROOT_CITY` | — | Home city for weather |
 
 Notes are saved in `~/.groot/notes.json`.
@@ -133,6 +178,7 @@ groot/
   assistant.py  main loop: wake word → listen → think → speak
   brain.py      talks to Claude, Groq or Ollama, runs skills it asks for
   skills.py     what Groot can do (add your own here!)
+  integrations.py  Mac apps (Mail, Calendar, Music, Shortcuts...) and Slack
   voice.py      microphone (speech-to-text) and speaker (text-to-speech)
   config.py     settings from .env
 tests/          run with: pip install pytest && pytest
