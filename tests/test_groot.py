@@ -800,3 +800,51 @@ def test_unknown_activity_is_explained():
     from groot.gui import BuddyActions
 
     assert "can't" in BuddyActions(Buddy()).perform_action("fly a plane")
+
+
+# ---- long-term memory ------------------------------------------------------
+
+def test_memory_survives_restart_and_reaches_the_ai(tmp_path):
+    from groot.brain import GroqBrain
+
+    skills = Skills(tmp_path, mac_apps=False)
+    assert skills.run("remember", {"fact": "User's sister is named Mitu"}).startswith("Saved")
+    assert skills.run("remember", {"fact": "user's sister is named mitu"}) == "I already remember that."
+
+    seen = []
+
+    def fake_post(url, payload, headers):
+        seen.append(payload["messages"][0]["content"])
+        return {"choices": [{"message": {"role": "assistant", "content": "Hi Sajib!"}}]}
+
+    # a brand new Groot (as after a restart) with a fresh Skills on the same folder
+    restarted = Skills(tmp_path, mac_apps=False)
+    brain = GroqBrain("k", "m", restarted, post=fake_post)
+    brain.reply("hello")
+    assert "User's sister is named Mitu" in seen[-1]
+
+    again = GroqBrain("k", "m", Skills(tmp_path, mac_apps=False), post=fake_post)
+    again.reply("what did we just talk about?")
+    assert "User: hello\nYou: Hi Sajib!" in seen[-1]  # recent conversation carried over
+
+
+def test_forget_and_list_memories(tmp_path):
+    skills = Skills(tmp_path, mac_apps=False)
+    assert skills.run("list_memories", {}) == "I don't have anything saved yet."
+    skills.run("remember", {"fact": "User likes football"})
+    skills.run("remember", {"fact": "User starts work at 9 am"})
+    assert "football" in skills.run("list_memories", {})
+    assert skills.run("forget", {"about": "football"}) == "Forgot 1 thing about football."
+    assert "football" not in skills.run("list_memories", {})
+    assert "work at 9" in skills.run("list_memories", {})
+
+
+def test_new_conversation_keeps_facts_but_clears_recent(tmp_path):
+    skills = Skills(tmp_path, mac_apps=False)
+    skills.run("remember", {"fact": "User's name is Sajib"})
+    skills.memory.add_turn("hi", "hello!")
+    brain = SimpleNamespace(skills=skills, reset=lambda: None)
+    config = SimpleNamespace(name="Groot", use_wake_word=False, wake_words=())
+    Assistant(config, brain, lambda t: None, lambda timeout=None: "").handle("new conversation")
+    block = skills.memory.prompt_block()
+    assert "Sajib" in block and "hello!" not in block

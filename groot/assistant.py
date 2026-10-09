@@ -30,6 +30,9 @@ class Assistant:
             return False
         if lowered in RESET_WORDS:
             self.brain.reset()
+            memory = getattr(getattr(self.brain, "skills", None), "memory", None)
+            if memory is not None:
+                memory.clear_recent()  # a fresh chat (saved facts are kept)
             self.speak("Okay, starting fresh.")
             return True
         skills = getattr(self.brain, "skills", None)

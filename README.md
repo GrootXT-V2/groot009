@@ -156,6 +156,21 @@ instructions, so nothing in an email or message can trick it into sending.
 Saying anything else, saying "stop", or waiting 2 minutes cancels it. Keep
 your `.env` private: the Slack token can read and send your messages.
 
+## Memory 🧠
+
+Groot remembers you between restarts, so you don't have to repeat yourself:
+
+- When you tell it something lasting — "My name is Sajib", "My sister is Mitu",
+  "I love football", "I start work at 9" — it saves it and knows it from then on.
+- "Remember that my car is parked on level 2" / "What do you remember about me?" /
+  "Forget my car".
+- It also remembers the last few things you talked about, so after a restart it can
+  pick up where you left off. "New conversation" clears that (saved facts stay).
+
+Memories are stored on your computer in `~/.groot/memory.json` (facts) and
+`~/.groot/recent.json` (recent chat). They're sent to the AI along with your
+questions so it can use them — Groot is told never to save passwords or other secrets.
+
 ## Settings (`.env`)
 
 | Variable | Default | What it does |
@@ -200,6 +215,7 @@ groot/
   skills.py     what Groot can do (add your own here!)
   integrations.py  Mac apps (Mail, Calendar, Music, Shortcuts...) and Slack
   notifications.py reads new Mac notifications
+  memory.py     long-term memory (facts about you and recent chat)
   buddy.py      the desktop buddy: behaviour and drawing
   mac_window.py / qt_window.py  its window on Mac (AppKit) / Windows and Linux (Qt)
   voice.py      microphone (speech-to-text) and speaker (text-to-speech)

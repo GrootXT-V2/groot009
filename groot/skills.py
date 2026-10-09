@@ -24,6 +24,7 @@ class Skills:
                  slack_token: str = "", mac_apps: bool = None):
         from .integrations import MAC_TOOLS, SLACK_TOOLS, MacApps, Slack, mac_available
         from .notifications import NOTIFICATION_TOOLS, Notifications
+        from .memory import MEMORY_TOOLS, Memory
 
         self.data_dir = Path(data_dir)
         self.default_city = default_city
@@ -31,8 +32,11 @@ class Skills:
         self.notes_file = self.data_dir / "notes.json"
         self.pending = None  # (description, action) waiting for the user to say yes
 
+        # long-term memory that survives restarts
+        self.memory = Memory(self.data_dir)
+
         # extra abilities: (object with the methods, its tool schemas)
-        self.integrations = []
+        self.integrations = [(self.memory, MEMORY_TOOLS)]
         if mac_available() if mac_apps is None else mac_apps:
             self.integrations.append((MacApps(self.ask_confirmation), MAC_TOOLS))
             self.integrations.append((Notifications(), NOTIFICATION_TOOLS))
