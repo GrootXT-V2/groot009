@@ -53,6 +53,7 @@ def test_assistant_wake_word_flow(tmp_path):
     said = []
     brain = SimpleNamespace(reply=lambda text: f"echo: {text}", reset=lambda: None)
     Assistant(config, brain, said.append, lambda timeout=None: next(heard)).run()
+    assert said[0].startswith("Groot is ready")
     # random chatter ignored; wake word -> "Yes?" -> command answered; then waits for wake word again
     assert said[1:3] == ["Yes?", "echo: tell me a joke"]
 
@@ -94,3 +95,40 @@ def test_groq_brain_uses_tools(tmp_path):
 
     brain = GroqBrain("test-key", "llama", Skills(tmp_path), post=fake_post)
     assert brain.reply("what time is it") == "It's noon."
+
+
+def test_groq_switches_away_from_retired_model(tmp_path):
+    from groot.brain import APIError, GroqBrain
+
+    used = []
+
+    def fake_post(url, payload, headers):
+        used.append(payload["model"])
+        if payload["model"] == "old-model":
+            raise APIError(404, "The model `old-model` does not exist or you do not have access to it.")
+        return {"choices": [{"message": {"role": "assistant", "content": "Hello!"}}]}
+
+    def fake_get(url, headers):
+        assert url.endswith("/models")
+        return {"data": [{"id": "whisper-large-v3"}, {"id": "qwen/qwen3-32b"}, {"id": "openai/gpt-oss-20b"}]}
+
+    brain = GroqBrain("k", "old-model", Skills(tmp_path), post=fake_post, get=fake_get)
+    assert brain.reply("hi") == "Hello!"
+    assert used == ["old-model", "qwen/qwen3-32b"]
+    assert brain.model == "qwen/qwen3-32b"
+
+
+def test_groq_auto_picks_model_and_drops_failed_turn(tmp_path):
+    from groot.brain import APIError, GroqBrain
+
+    def failing_post(url, payload, headers):
+        raise APIError(401, "Invalid API Key")
+
+    brain = GroqBrain("k", "", Skills(tmp_path), post=failing_post,
+                      get=lambda url, headers: {"data": [{"id": "llama-guard-4"}, {"id": "some-chat-model"}]})
+    try:
+        brain.reply("hi")
+    except APIError as exc:
+        assert "Invalid API Key" in str(exc)
+    assert brain.model == "some-chat-model"
+    assert brain.history == []

@@ -7,6 +7,7 @@ Three brains are available:
 """
 
 import json
+import urllib.error
 import urllib.request
 
 from .skills import TOOLS, Skills
@@ -99,8 +100,32 @@ def _post_json(url: str, payload: dict, headers: dict = None) -> dict:
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "User-Agent": "groot-assistant", **(headers or {})},
     )
-    with urllib.request.urlopen(request, timeout=300) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return _open_json(request)
+
+
+def _get_json(url: str, headers: dict = None) -> dict:
+    request = urllib.request.Request(url, headers={"User-Agent": "groot-assistant", **(headers or {})})
+    return _open_json(request)
+
+
+class APIError(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(f"HTTP {status}: {message}")
+        self.status = status
+        self.message = message
+
+
+def _open_json(request) -> dict:
+    try:
+        with urllib.request.urlopen(request, timeout=300) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        try:
+            message = json.loads(body)["error"]["message"]
+        except Exception:
+            message = body[:300] or exc.reason
+        raise APIError(exc.code, message) from None
 
 
 class OllamaBrain:
@@ -179,34 +204,87 @@ class GroqBrain:
     OpenAI-compatible services by changing the url.
     """
 
+    # Tried in order when no model is set or the chosen one has been retired.
+    PREFERRED_MODELS = [
+        "openai/gpt-oss-120b",
+        "llama-3.3-70b-versatile",
+        "moonshotai/kimi-k2-instruct",
+        "qwen/qwen3-32b",
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "openai/gpt-oss-20b",
+        "llama-3.1-8b-instant",
+    ]
+    NOT_CHAT = ("whisper", "guard", "tts", "playai", "orpheus", "distil", "compound")
+
     def __init__(self, api_key: str, model: str, skills: Skills, name: str = "Groot", city: str = "",
-                 url: str = "https://api.groq.com/openai/v1/chat/completions", post=_post_json):
+                 url: str = "https://api.groq.com/openai/v1", post=_post_json, get=_get_json):
         self.api_key = api_key
         self.model = model
         self.skills = skills
-        self.url = url
+        self.url = url.rstrip("/")
         self.post = post
+        self.get = get
         self.system = SYSTEM_PROMPT.format(
             name=name,
             city_line=f"The user lives in {city}." if city else "",
         )
         self.history: list = []
 
+    @property
+    def _auth(self) -> dict:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+    def pick_model(self) -> str:
+        """Ask Groq which models exist and choose the best one for chatting."""
+        data = self.get(self.url + "/models", self._auth).get("data", [])
+        available = [m["id"] for m in data if m.get("active", True)]
+        for model in self.PREFERRED_MODELS:
+            if model in available:
+                return model
+        chat_models = [m for m in available if not any(word in m.lower() for word in self.NOT_CHAT)]
+        if not chat_models:
+            raise RuntimeError("Groq didn't list any chat models for your account.")
+        return chat_models[0]
+
+    def _chat(self) -> dict:
+        if not self.model:
+            self.model = self.pick_model()
+            print(f"[using Groq model {self.model}]")
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": self.system}] + self.history,
+            "tools": OLLAMA_TOOLS,
+            "max_tokens": 500,
+        }
+        try:
+            return self.post(self.url + "/chat/completions", payload, self._auth)
+        except APIError as exc:
+            # 404 / model_not_found / decommissioned: switch to a model that exists
+            if exc.status in (400, 404) and "model" in exc.message.lower():
+                old = self.model
+                self.model = self.pick_model()
+                if self.model == old:
+                    raise
+                print(f"[Groq model {old} isn't available, switching to {self.model}]")
+                payload["model"] = self.model
+                return self.post(self.url + "/chat/completions", payload, self._auth)
+            raise
+
     def reply(self, text: str) -> str:
+        start = len(self.history)
         self.history.append({"role": "user", "content": text})
+        try:
+            return self._reply()
+        except Exception:
+            del self.history[start:]  # don't keep a half-finished turn
+            raise
+
+    def _reply(self) -> str:
         message = {}
 
         for _ in range(MAX_TOOL_ROUNDS):
-            response = self.post(
-                self.url,
-                {
-                    "model": self.model,
-                    "messages": [{"role": "system", "content": self.system}] + self.history,
-                    "tools": OLLAMA_TOOLS,
-                    "max_tokens": 500,
-                },
-                {"Authorization": f"Bearer {self.api_key}"},
-            )
+            response = self._chat()
             message = response["choices"][0]["message"]
             tool_calls = message.get("tool_calls") or []
             entry = {"role": "assistant", "content": message.get("content") or ""}

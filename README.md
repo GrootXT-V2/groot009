@@ -75,7 +75,7 @@ Things to try:
 |---|---|---|
 | `GROOT_BRAIN` | `auto` | `auto`, `groq` (free, fast), `ollama` (free, local) or `claude` (paid) |
 | `GROQ_API_KEY` | — | Free Groq key (for the Groq brain) |
-| `GROOT_GROQ_MODEL` | `llama-3.3-70b-versatile` | Which Groq model to use |
+| `GROOT_GROQ_MODEL` | auto | Which Groq model to use (empty = pick automatically) |
 | `GROOT_OLLAMA_MODEL` | `llama3.2` | Which Ollama model to use |
 | `ANTHROPIC_API_KEY` | — | Claude API key (only for the Claude brain) |
 | `GROOT_NAME` | `Groot` | Assistant's name |

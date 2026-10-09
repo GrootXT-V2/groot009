@@ -88,7 +88,7 @@ def main() -> None:
                             url=config.ollama_url)
         brain.warm_up()
     elif brain_kind == "groq":
-        print(f"Using free fast cloud brain: Groq ({config.groq_model})")
+        print(f"Using free fast cloud brain: Groq ({config.groq_model or 'auto model'})")
         brain = GroqBrain(os.environ["GROQ_API_KEY"], config.groq_model, skills,
                           name=config.name, city=config.city)
     else:
@@ -98,7 +98,7 @@ def main() -> None:
         brain = Brain(anthropic.Anthropic(), config.model, skills, name=config.name, city=config.city)
 
     try:
-        Assistant(config, brain, speak, listen).run()
+        Assistant(config, brain, speak, listen, echo=not args.text).run()
     except KeyboardInterrupt:
         print("\nBye!")
 

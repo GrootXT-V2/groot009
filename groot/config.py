@@ -27,7 +27,7 @@ class Config:
     brain: str = field(default_factory=lambda: os.getenv("GROOT_BRAIN", "auto").lower())
     model: str = field(default_factory=lambda: os.getenv("GROOT_MODEL", "claude-sonnet-5-5"))
     groq_model: str = field(
-        default_factory=lambda: os.getenv("GROOT_GROQ_MODEL", "llama-3.3-70b-versatile")
+        default_factory=lambda: os.getenv("GROOT_GROQ_MODEL", "")
     )
     ollama_model: str = field(default_factory=lambda: os.getenv("GROOT_OLLAMA_MODEL", "llama3.2"))
     ollama_url: str = field(

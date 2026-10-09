@@ -15,8 +15,9 @@ def strip_wake_word(text: str, wake_words) -> str | None:
 
 
 class Assistant:
-    def __init__(self, config, brain, speak, listen):
+    def __init__(self, config, brain, speak, listen, echo: bool = True):
         self.config = config
+        self.echo = echo  # print what was heard (off in text mode, where you typed it)
         self.brain = brain
         self.speak = speak
         self.listen = listen
@@ -34,7 +35,7 @@ class Assistant:
         try:
             answer = self.brain.reply(text)
         except Exception as exc:
-            print(f"[error: {exc}]")
+            print(f"[error: {exc}]")  # shows the real reason, e.g. a bad API key
             answer = "Sorry, something went wrong. Please try again."
         self.speak(answer)
         return True
@@ -50,7 +51,8 @@ class Assistant:
             heard = self.listen()
             if not heard:
                 continue
-            print(f"You: {heard}")
+            if self.echo:
+                print(f"You: {heard}")
 
             if self.config.use_wake_word:
                 command = strip_wake_word(heard, self.config.wake_words)
@@ -61,7 +63,8 @@ class Assistant:
                     command = self.listen(timeout=8)
                     if not command:
                         continue
-                    print(f"You: {command}")
+                    if self.echo:
+                        print(f"You: {command}")
             else:
                 command = heard
 
