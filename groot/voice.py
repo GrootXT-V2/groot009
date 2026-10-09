@@ -1,8 +1,8 @@
 """Ears (speech-to-text) and mouth (text-to-speech)."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
-import queue
 import re
 import shutil
 import subprocess
@@ -56,7 +56,7 @@ def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH, base_rat
 
 # Voice styles for the natural voice: (voice, pitch, speed)
 VOICE_STYLES = {
-    "baby": ("en-US-AnaNeural", "+15Hz", "-8%"),  # a real child's voice, a little higher and slower
+    "baby": ("en-US-AnaNeural", "+15Hz", "+0%"),  # a real child's voice, a little higher
     "little": ("en-US-AndrewNeural", "+30Hz", "+5%"),  # a young man's voice pitched up
     "normal": ("en-US-AndrewNeural", "+0Hz", "+0%"),
 }
@@ -187,47 +187,40 @@ class Speaker:
     def _say_edge(self, text: str) -> None:
         """Speak with a natural neural voice, one sentence at a time.
 
-        The next sentence is prepared while the current one plays, so the
-        first words start quickly even for long answers.
+        All sentences are prepared at the same time (in parallel) and played
+        in order as soon as each is ready, so there are no waits in between.
         """
         import edge_tts
 
         pitch = self.edge_pitch if self.tree_voice else "+0Hz"
-        # dramatic mode speaks every sentence separately so each gets its own emotion
-        sentences = split_sentences(text, min_length=8 if self.dramatic else 25) or [text]
-        ready = queue.Queue()
+        # dramatic mode speaks sentences separately so each gets its own emotion
+        sentences = split_sentences(text, min_length=14 if self.dramatic else 25) or [text]
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
-            def prepare():
-                try:
-                    for i, sentence in enumerate(sentences):
-                        if self._stopped:
-                            break
-                        path = os.path.join(folder, f"{i}.mp3")
-                        rate, line_pitch = (dramatic_prosody(sentence, pitch, self.edge_rate) if self.dramatic
-                                            else (self.edge_rate, pitch))
-                        speech = edge_tts.Communicate(sentence, self.edge_voice, rate=rate, pitch=line_pitch)
-                        asyncio.run(speech.save(path))
-                        ready.put(path)
-                except Exception as exc:
-                    ready.put(exc)
-                ready.put(None)
+            def prepare(i, sentence):
+                if self._stopped:
+                    return None
+                path = os.path.join(folder, f"{i}.mp3")
+                rate, line_pitch = (dramatic_prosody(sentence, pitch, self.edge_rate) if self.dramatic
+                                    else (self.edge_rate, pitch))
+                speech = edge_tts.Communicate(sentence, self.edge_voice, rate=rate, pitch=line_pitch)
+                asyncio.run(speech.save(path))
+                return path
 
-            worker = threading.Thread(target=prepare, daemon=True)
-            worker.start()
-            played = 0
-            while True:
-                item = ready.get()
-                if item is None:
-                    break
-                if isinstance(item, Exception):
-                    if played == 0:
-                        raise item  # nothing spoken yet: fall back to the Mac voice
-                    break
-                if not self._stopped:
-                    self._run(["afplay", item])
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                jobs = [pool.submit(prepare, i, sentence) for i, sentence in enumerate(sentences)]
+                played = 0
+                for job in jobs:
+                    try:
+                        path = job.result(timeout=30)
+                    except Exception:
+                        if played == 0:
+                            raise  # nothing spoken yet: fall back to the Mac voice
+                        break
+                    if self._stopped or path is None:
+                        break
+                    self._run(["afplay", path])
                     played += 1
-            worker.join(timeout=10)
 
     def _say_groot(self, text: str) -> None:
         voice = self.voice or self._groot_voice()
@@ -271,6 +264,9 @@ class Listener:
         self.whisper_model = whisper_model
         self.recognizer = sr.Recognizer()
         self.recognizer.dynamic_energy_threshold = True
+        # notice sooner that you've finished talking (default waits 0.8 s of silence)
+        self.recognizer.pause_threshold = 0.5
+        self.recognizer.non_speaking_duration = 0.3
         self._mic_lock = threading.Lock()  # only one listener at a time
         self.microphone = sr.Microphone()
         with self.microphone as source:

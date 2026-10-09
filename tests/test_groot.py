@@ -705,7 +705,40 @@ def test_baby_voice_style(monkeypatch):
     monkeypatch.delenv("GROOT_VOICE_STYLE", raising=False)
     monkeypatch.setenv("GROOT_EDGE_VOICE", "en-US-AndrewNeural")  # an old .env setting
     config = Config()
-    assert (config.edge_voice, config.edge_pitch, config.edge_rate) == ("en-US-AnaNeural", "+15Hz", "-8%")
-    assert dramatic_prosody("Yay!", config.edge_pitch, config.edge_rate) == ("+1%", "+33Hz")
+    assert (config.edge_voice, config.edge_pitch, config.edge_rate) == ("en-US-AnaNeural", "+15Hz", "+0%")
+    assert dramatic_prosody("Yay!", config.edge_pitch, config.edge_rate) == ("+9%", "+33Hz")
     monkeypatch.setenv("GROOT_VOICE_STYLE", "custom")
     assert Config().edge_voice == "en-US-AndrewNeural"
+
+
+def test_natural_voice_prepares_sentences_in_parallel_but_plays_in_order(monkeypatch):
+    import time
+    import groot.voice as voice
+
+    made = _fake_edge(monkeypatch, voice)
+    original_save_cls = __import__("sys").modules["edge_tts"].Communicate
+    started = []
+
+    class SlowFirst(original_save_cls):
+        async def save(self, path):
+            started.append(self.text)
+            if self.text.startswith("First"):
+                time.sleep(0.2)  # the first sentence takes longest to prepare
+            await super().save(path)
+
+    monkeypatch.setattr(__import__("sys").modules["edge_tts"], "Communicate", SlowFirst)
+    played = []
+
+    class FakeProcess:
+        def __init__(self, cmd):
+            with open(cmd[1]) as f:
+                played.append(f.read())
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
+    began = time.monotonic()
+    voice.Speaker().say("First sentence is long. Second sentence here. Third one now!")
+    assert played == ["First sentence is long.", "Second sentence here.", "Third one now!"]
+    assert len(started) == 3 and time.monotonic() - began < 0.5  # prepared together, not one by one
