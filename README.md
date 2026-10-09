@@ -78,7 +78,7 @@ python -m groot --gui
 Or just **double-click `Groot.command`** in Finder. The first time, macOS may
 block it: right-click it → **Open** → **Open**.
 
-A little tree creature (or a robot, with `GROOT_ROBOT_STYLE=robot`) appears at
+A little fox (or a tree creature or robot, with `GROOT_ROBOT_STYLE=tree` / `robot`) appears at
 the bottom of your screen and plays — walking back and
 forth, looking around, waving, jumping and dancing. Pick it up and drop it, and
 it falls back down.
@@ -93,7 +93,7 @@ it falls back down.
 - **Click it** to start or stop talking. **Drag it** to pick it up and move it.
 - **Right-click** (or Ctrl+click) for the menu: Stay still, Little Groot voice,
   "I am Groot" mode, Quit.
-- Its leaves show its mood: 🍃 playing · bright green + glow = listening · 🍂 golden = thinking
+- It shows its mood: ears perk up and eyes glow green when listening, head tilts when thinking
 
 While it's playing, Groot listens for "Hey Groot" using the same speech
 recognition as the rest of the app (Google's free service by default, or
@@ -197,7 +197,7 @@ questions so it can use them — Groot is told never to save passwords or other 
 | `GROOT_VOICE_PITCH` | `1.25` | Higher = smaller, cuter voice. `1.0` normal, `0.8` big deep Groot |
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
-| `GROOT_ROBOT_STYLE` | `tree` | `tree` (little tree creature) or `robot` |
+| `GROOT_ROBOT_STYLE` | `fox` | `fox`, `tree` (little tree creature) or `robot` |
 | `GROOT_ROBOT_SIZE` | `0.6` | Desktop robot size (`1.0` = big) |
 | `GROOT_READ_NOTIFICATIONS` | `true` | Read new Mac notifications aloud (needs Full Disk Access) |
 | `SLACK_TOKEN` | — | Slack user token (`xoxp-...`) to let Groot read and send Slack messages |

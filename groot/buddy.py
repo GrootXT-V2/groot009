@@ -33,6 +33,15 @@ LEAF_COLORS = {  # the leaves change color with Groot's mood
     "error": "#c65a3a",
 }
 
+# Fox colors
+FUR = "#f0832f"
+FUR_LIGHT = "#ffa45a"
+FUR_LINE = "#a24a12"
+CREAM = "#fff3e3"
+SOCK = "#3a2a26"
+EAR_INSIDE = "#ffd0b8"
+FOX_GLOW = {"listening": "#3ee86f", "thinking": "#f5c542"}
+
 # Robot colors
 WHITE = "#f4f6f8"
 SHADE = "#c9d1d9"
@@ -684,6 +693,8 @@ class Buddy:
             c.translate(-CX, -298)
         if self.style == "robot":
             self._draw_robot(c, now)
+        elif self.style == "fox":
+            self._draw_fox(c, now)
         else:
             self._draw_tree(c, now)
         c.restore()
@@ -906,6 +917,129 @@ class Buddy:
 
         if self._resting():
             self._zzz(c, now, cx + 50, 84 + oy, "#7f9a6a")
+
+    # ---- the fox
+
+    def _fox_limb(self, c, x1, y1, x2, y2, width):
+        c.line(x1, y1, x2, y2, FUR_LINE, width + 3)
+        c.line(x1, y1, x2, y2, FUR, width)
+
+    def _draw_fox(self, c, now):
+        pose = self.pose
+        cx = CX
+        oy = pose["bob"] - pose["lift"]
+        turn = self.turn
+        fx = turn * 8  # face slides toward where the fox is walking
+        side = -1 if turn > 0.3 else 1  # the tail trails behind: on the left when walking right
+
+        # bushy tail, swishing
+        swish = 10 * math.sin(self.t * 3) + (18 if self.state == "listening" else 0)
+        c.save()
+        c.translate(cx + side * 14, 246 + oy)
+        c.rotate(side * (-30 + swish))
+        tail = (Shape(0, -7).cubic(side * 24, -34, side * 62, -34, side * 82, -10)
+                .cubic(side * 74, 10, side * 40, 20, 0, 9).close())
+        c.fill_stroke(tail, FUR, FUR_LINE, 2)
+        tip = (Shape(side * 60, -24).cubic(side * 70, -27, side * 82, -20, side * 82, -10)
+               .cubic(side * 78, 0, side * 70, 6, side * 60, 9)
+               .cubic(side * 65, -2, side * 65, -14, side * 60, -24).close())
+        c.fill_stroke(tip, CREAM, FUR_LINE, 1.5)
+        c.restore()
+
+        # legs with dark socks
+        for leg_side, phase in ((-1, pose["legs"]), (1, -pose["legs"])):
+            hip_x = cx + leg_side * 12
+            up = 0 if self.dragging else max(0.0, phase) * 8
+            dangle = 6 if self.dragging else 0
+            foot_x = cx + leg_side * 15 + turn * 6 * phase
+            foot_y = 286 + oy - up + dangle
+            self._fox_limb(c, hip_x, 246 + oy, foot_x, foot_y - 8, 13)
+            c.line(foot_x - turn * 2, foot_y - 12, foot_x, foot_y - 2, SOCK, 12)
+            c.oval(foot_x - 11 + turn * 4, foot_y - 6, foot_x + 11 + turn * 4, foot_y + 6, SOCK)
+
+        # body with a cream tummy
+        c.oval(cx - 27, 194 + oy, cx + 27, 260 + oy, FUR, FUR_LINE, 2)
+        c.oval(cx - 16 + fx * 0.4, 206 + oy, cx + 16 + fx * 0.4, 254 + oy, CREAM)
+
+        # arms with dark paws
+        for shoulder_x, angle in ((cx - 18, pose["left_arm"]), (cx + 18, pose["right_arm"])):
+            sy = 210 + oy
+            rad = math.radians(angle)
+            hx, hy = shoulder_x + 34 * math.cos(rad), sy + 34 * math.sin(rad)
+            self._fox_limb(c, shoulder_x, sy, hx, hy, 10)
+            c.oval(hx - 7, hy - 7, hx + 7, hy + 7, SOCK)
+
+        # head: tilts when thinking
+        c.save()
+        tilt = 7 * math.sin(self.t * 1.2) if self.state == "thinking" else 0
+        if tilt:
+            c.translate(cx, 196 + oy)
+            c.rotate(tilt)
+            c.translate(-cx, -196 - oy)
+
+        # ears (perk up while listening)
+        perk = -8 if self.state == "listening" else 2 * math.sin(self.t * 1.7)
+        for ear_side in (-1, 1):
+            base_x = cx + ear_side * 34 + fx * 0.5
+            c.save()
+            c.translate(base_x, 116 + oy)
+            c.rotate(ear_side * (12 + perk))
+            c.fill_stroke(Shape(-18, 6).line(-2, -44).line(18, 6).close(), FUR, FUR_LINE, 2)
+            c.fill_stroke(Shape(-10, 2).line(-2, -30).line(10, 2).close(), EAR_INSIDE)
+            c.fill_stroke(Shape(-9, -24).line(-2, -44).line(7, -24).close(), SOCK)  # dark tips
+            c.restore()
+
+        # head shape with fluffy cheeks
+        head = (Shape(cx, 102 + oy).cubic(cx + 42, 102 + oy, cx + 62, 124 + oy, cx + 62, 150 + oy)
+                .line(cx + 74, 172 + oy).line(cx + 54, 174 + oy)
+                .cubic(cx + 44, 192 + oy, cx + 22, 202 + oy, cx, 202 + oy)
+                .cubic(cx - 22, 202 + oy, cx - 44, 192 + oy, cx - 54, 174 + oy)
+                .line(cx - 74, 172 + oy).line(cx - 62, 150 + oy)
+                .cubic(cx - 62, 124 + oy, cx - 42, 102 + oy, cx, 102 + oy).close())
+        c.gradient(head, (0, 102 + oy), (0, 202 + oy), [(0, FUR_LIGHT), (0.6, FUR), (1, FUR)], FUR_LINE, 2.2)
+        mask = (Shape(cx - 52 + fx, 160 + oy).cubic(cx - 36 + fx, 150 + oy, cx - 12 + fx, 154 + oy, cx + fx, 166 + oy)
+                .cubic(cx + 12 + fx, 154 + oy, cx + 36 + fx, 150 + oy, cx + 52 + fx, 160 + oy)
+                .line(cx + 66, 171 + oy).line(cx + 48, 173 + oy)
+                .cubic(cx + 38, 190 + oy, cx + 18, 199 + oy, cx + fx * 0.5, 199 + oy)
+                .cubic(cx - 18, 199 + oy, cx - 38, 190 + oy, cx - 48, 173 + oy)
+                .line(cx - 66, 171 + oy).close())
+        c.fill_stroke(mask, CREAM)
+
+        # eyes
+        open_amount = self._eye_open_amount(now, 0.65)
+        look_x, look_y = self.look
+        glow = FOX_GLOW.get(self.state)
+        for eye_side in (-1, 1):
+            ex, ey = cx + eye_side * 24 + fx, 146 + oy
+            if glow:
+                c.oval(ex - 17, ey - 19, ex + 17, ey + 19, (glow, 0.3))
+            if open_amount < 0.2:
+                c.arc(ex - 11, ey - 6, ex + 11, ey + 4, 200, 140, SOCK, 3)  # happy closed eyes
+                continue
+            rx, ry = 11, 14 * open_amount
+            ox, oy2 = look_x * 0.5, look_y * 0.5
+            c.oval(ex - rx + ox, ey - ry + oy2, ex + rx + ox, ey + ry + oy2, "#1a1210")
+            c.oval(ex - 6 + ox, ey - 9 * open_amount + oy2, ex - 1 + ox, ey - 4 * open_amount + oy2, "#ffffff")
+            c.oval(ex + 3 + ox, ey + 3 * open_amount + oy2, ex + 5 + ox, ey + 5 * open_amount + oy2, "#dddddd")
+
+        # nose, mouth and cheeks
+        nx, ny = cx + fx * 1.2, 168 + oy
+        c.fill_stroke(Shape(nx - 7, ny - 3).cubic(nx - 7, ny - 7, nx + 7, ny - 7, nx + 7, ny - 3)
+                      .cubic(nx + 6, ny + 2, nx + 2, ny + 5, nx, ny + 5)
+                      .cubic(nx - 2, ny + 5, nx - 6, ny + 2, nx - 7, ny - 3).close(), "#2a1d1a")
+        c.oval(nx - 3, ny - 5, nx + 1, ny - 3, "#6b5a55")  # shine
+        if self.state == "speaking":
+            opening = 2 + 7 * sum(self.mouth) / len(self.mouth)
+            c.oval(nx - 6, ny + 7, nx + 6, ny + 7 + opening, "#7a2e2a", SOCK, 1.2)
+        else:
+            c.arc(nx - 8, ny + 1, nx, ny + 10, 200, 140, SOCK, 1.8)  # little "w" smile
+            c.arc(nx, ny + 1, nx + 8, ny + 10, 200, 140, SOCK, 1.8)
+        for cheek_side in (-1, 1):
+            c.oval(cx + cheek_side * 40 - 7 + fx, 172 + oy, cx + cheek_side * 40 + 7 + fx, 179 + oy, ("#ff8a7a", 0.4))
+        c.restore()
+
+        if self._resting():
+            self._zzz(c, now, cx + 54, 84 + oy, "#c58a5a")
 
     def _draw_caption(self, c, now):
         if not self.caption or now > self.caption_until:
