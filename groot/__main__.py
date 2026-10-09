@@ -60,7 +60,7 @@ def main() -> None:
     else:
         from .voice import Speaker
 
-        speaker = Speaker(rate=config.voice_rate)
+        speaker = Speaker(rate=config.voice_rate, voice=config.voice)
 
         def speak(text):
             print(f"{config.name}: {text}")

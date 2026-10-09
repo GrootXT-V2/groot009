@@ -43,6 +43,7 @@ class Config:
     use_wake_word: bool = field(default_factory=lambda: _bool("GROOT_USE_WAKE_WORD", True))
     stt_engine: str = field(default_factory=lambda: os.getenv("GROOT_STT", "google"))
     whisper_model: str = field(default_factory=lambda: os.getenv("GROOT_WHISPER_MODEL", "base"))
+    voice: str = field(default_factory=lambda: os.getenv("GROOT_VOICE", ""))
     voice_rate: int = field(default_factory=lambda: int(os.getenv("GROOT_VOICE_RATE", "180")))
     city: str = field(default_factory=lambda: os.getenv("GROOT_CITY", ""))
     data_dir: Path = field(

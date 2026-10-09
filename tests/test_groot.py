@@ -132,3 +132,16 @@ def test_groq_auto_picks_model_and_drops_failed_turn(tmp_path):
         assert "Invalid API Key" in str(exc)
     assert brain.model == "some-chat-model"
     assert brain.history == []
+
+
+def test_mac_speaker_uses_say_every_time(monkeypatch):
+    import groot.voice as voice
+
+    ran = []
+    monkeypatch.setattr(voice.sys, "platform", "darwin")
+    monkeypatch.setattr(voice.shutil, "which", lambda name: "/usr/bin/say")
+    monkeypatch.setattr(voice.subprocess, "run", lambda cmd, check: ran.append(cmd))
+    speaker = voice.Speaker(rate=200, voice="Samantha")
+    for text in ["one", "two", "three"]:
+        speaker.say(text)
+    assert ran == [["say", "-r", "200", "-v", "Samantha", t] for t in ["one", "two", "three"]]

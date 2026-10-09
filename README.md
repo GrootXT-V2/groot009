@@ -85,6 +85,7 @@ Things to try:
 | `GROOT_STT` | `google` | `google` (free, online) or `whisper` (offline; `pip install openai-whisper`) |
 | `GROOT_WHISPER_MODEL` | `base` | Whisper size: `tiny`, `base`, `small`, `medium` |
 | `GROOT_VOICE_RATE` | `180` | Speaking speed |
+| `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
 | `GROOT_CITY` | — | Home city for weather |
 
 Notes are saved in `~/.groot/notes.json`.
