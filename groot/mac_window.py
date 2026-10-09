@@ -154,6 +154,22 @@ class BuddyView(NSView):
         NSMenu.popUpContextMenu_withEvent_forView_(self.host.build_menu(), event, self)
 
 
+class PropView(NSView):
+    """Draws one toy (ball, butterfly) in its own little window."""
+
+    host = None
+
+    def isFlipped(self):
+        return True
+
+    def drawRect_(self, rect):
+        NSColor.clearColor().set()
+        AppKit.NSRectFillUsingOperation(self.bounds(), COMPOSITE_COPY)
+        for prop, (window, view) in self.host.prop_windows.items():
+            if view == self:
+                prop.draw(MacCanvas())
+
+
 class Driver(NSObject):
     """Receives the animation timer and menu clicks."""
 
@@ -179,18 +195,13 @@ class MacHost:
         self.window = None
         self.view = None
         self._callbacks = []
+        self.prop_windows = {}  # toy -> (window, view)
 
     def show(self, buddy: Buddy):
         self.buddy = buddy
         buddy.on_quit = self.quit
         rect = NSMakeRect(0, 0, buddy.W, buddy.H)
-        window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            rect, BORDERLESS, NSBackingStoreBuffered, False)
-        window.setOpaque_(False)
-        window.setBackgroundColor_(NSColor.clearColor())
-        window.setHasShadow_(False)
-        window.setLevel_(FLOATING_LEVEL)
-        window.setCollectionBehavior_(ALL_SPACES)
+        window = self._floating_window(buddy.W, buddy.H)
         BuddyView.host = self
         self.view = BuddyView.alloc().initWithFrame_(rect)
         window.setContentView_(self.view)
@@ -218,6 +229,36 @@ class MacHost:
         self.buddy.tick()
         self.move_window()
         self.view.setNeedsDisplay_(True)
+        self.sync_props()
+
+    def _floating_window(self, width, height):
+        window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, width, height), BORDERLESS, NSBackingStoreBuffered, False)
+        window.setOpaque_(False)
+        window.setBackgroundColor_(NSColor.clearColor())
+        window.setHasShadow_(False)
+        window.setLevel_(FLOATING_LEVEL)
+        window.setCollectionBehavior_(ALL_SPACES)
+        return window
+
+    def sync_props(self):
+        """Open, move and close the little windows for the toys on screen."""
+        for prop in list(self.prop_windows):
+            if prop not in self.buddy.props:
+                window, _ = self.prop_windows.pop(prop)
+                window.orderOut_(None)
+        for prop in self.buddy.props:
+            if prop not in self.prop_windows:
+                window = self._floating_window(prop.W, prop.H)
+                window.setIgnoresMouseEvents_(True)  # clicks go straight through toys
+                PropView.host = self
+                view = PropView.alloc().initWithFrame_(NSMakeRect(0, 0, prop.W, prop.H))
+                window.setContentView_(view)
+                window.orderFrontRegardless()
+                self.prop_windows[prop] = (window, view)
+            window, view = self.prop_windows[prop]
+            window.setFrameOrigin_((prop.x, self.screen_height - prop.y - prop.H))
+            view.setNeedsDisplay_(True)
 
     def build_menu(self):
         menu = NSMenu.alloc().initWithTitle_(self.buddy.name)

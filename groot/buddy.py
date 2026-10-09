@@ -190,6 +190,72 @@ def _gradient_color(stops, pos):
 # ------------------------------------------------------------------ the buddy
 
 
+# How long each on-screen activity lasts, in seconds
+ACTIVITIES = {"football": 30, "butterfly": 25, "dance": 8, "jump": 4, "wave": 4, "sleep": 45, "run": 12}
+
+
+class Prop:
+    """A toy that moves around the screen in its own little window (a ball, a butterfly)."""
+
+    def __init__(self, kind, cx, cy, radius):
+        self.kind = kind
+        self.cx, self.cy = cx, cy  # center, in screen coordinates
+        self.r = radius
+        self.W = self.H = int(radius * 2 + 10)
+        self.vx = self.vy = 0.0
+        self.angle = 0.0  # how far the ball has rolled, in degrees
+        self.t = 0.0
+
+    @property
+    def x(self):
+        return self.cx - self.W / 2
+
+    @property
+    def y(self):
+        return self.cy - self.H / 2
+
+    def draw(self, c: "Canvas", now=None):
+        c.save()
+        c.translate(self.W / 2, self.H / 2)
+        if self.kind == "ball":
+            self._draw_ball(c)
+        else:
+            self._draw_butterfly(c)
+        c.restore()
+
+    def _draw_ball(self, c):
+        r = self.r
+        c.rotate(self.angle)
+        c.oval(-r, -r, r, r, "#ffffff")
+        c.save()
+        c.clip(oval_shape(-r, -r, r, r))
+        c.polygon(_pentagon(0, 0, r * 0.36, -90), "#22262c")
+        for k in range(5):  # patches around the edge
+            a = math.radians(-54 + 72 * k)
+            c.polygon(_pentagon(r * 0.92 * math.cos(a), r * 0.92 * math.sin(a), r * 0.3, -54 + 72 * k + 180),
+                      "#22262c")
+            seam_a = math.radians(-90 + 72 * k)
+            c.line(r * 0.36 * math.cos(seam_a), r * 0.36 * math.sin(seam_a),
+                   r * 0.7 * math.cos(seam_a), r * 0.7 * math.sin(seam_a), "#9aa3ad", 1)
+        c.restore()
+        c.oval(-r, -r, r, r, None, "#2b2f36", 1.5)
+
+    def _draw_butterfly(self, c):
+        flap = 0.25 + 0.75 * abs(math.sin(self.t * 14))
+        s = self.r / 14
+        for side in (-1, 1):
+            c.oval(side * 1, -12 * s, side * (1 + 13 * flap * s), 1 * s, "#ff8fb8", "#c24d7a", 1)
+            c.oval(side * 1, -1 * s, side * (1 + 9 * flap * s), 9 * s, "#ffc75f", "#c2852d", 1)
+        c.rrect(-1.6 * s, -9 * s, 1.6 * s, 9 * s, 1.6 * s, "#3a2a24")
+        c.line(0, -9 * s, -4 * s, -15 * s, "#3a2a24", 1)
+        c.line(0, -9 * s, 4 * s, -15 * s, "#3a2a24", 1)
+
+
+def _pentagon(cx, cy, r, rotation):
+    return [(cx + r * math.cos(math.radians(rotation + 72 * i)), cy + r * math.sin(math.radians(rotation + 72 * i)))
+            for i in range(5)]
+
+
 class Buddy:
     CAPTION_H = 64  # room above the character for its speech bubble
     GRAVITY = 1.2
@@ -231,6 +297,8 @@ class Buddy:
         self.step = 0.0  # walking cycle
         self.turn = 0.0  # -1 facing left, 0 facing you, 1 facing right
         self.fall_speed = 0.0
+        self.activity = None  # something you asked Groot to do, like playing football
+        self.props = []  # toys on screen (each gets its own little window)
 
         self.set_area(area)
         self.x = float(area.right - self.W - 30)
@@ -253,6 +321,10 @@ class Buddy:
 
     def set_watcher(self, watcher) -> None:
         self.events.put(("watcher", watcher))
+
+    def perform(self, activity: str) -> None:
+        """Start an on-screen activity (football, butterfly, dance, ...) or 'stop'."""
+        self.events.put(("perform", activity))
 
     # ---- mouse (positions in top-left-origin screen coordinates)
 
@@ -358,6 +430,9 @@ class Buddy:
             self.fall_speed = 0.0
             self._new_action("rest")
 
+        if self.activity is not None:
+            return self._do_activity(now, pose, awake)
+
         if awake or self.stay_still:
             self.look = (self.look[0] * 0.8, self.look[1] * 0.8)
             if self.state == "thinking":
@@ -424,6 +499,8 @@ class Buddy:
                 self.caption_until = time.monotonic() + seconds if seconds else float("inf")
             elif kind == "watcher":
                 self.watcher = value
+            elif kind == "perform":
+                self._start_activity(value)
             elif kind == "session":
                 self.session = value
                 self.little_voice = value.speaker.tree_voice
@@ -439,6 +516,158 @@ class Buddy:
             self.mouth = [max(0.15, min(1.0, m + random.uniform(-0.35, 0.35))) for m in self.mouth]
 
     # ---- drawing
+
+    # ---- on-screen activities
+
+    def _start_activity(self, name):
+        self._end_activity(wave=False)
+        if name not in ACTIVITIES:
+            return
+        now = time.monotonic()
+        self.activity = {"name": name, "start": now, "until": now + ACTIVITIES[name], "kick_until": 0.0,
+                         "kick_dir": 1, "jump_start": -10.0, "target": None, "retarget": 0.0}
+        center = self.x + self.W / 2
+        toward_middle = 1 if center < (self.area.left + self.area.right) / 2 else -1
+        if name == "football":
+            r = 10 + 10 * self.scale
+            self.props = [Prop("ball", center + toward_middle * 90, self.area.bottom - r - 2, r)]
+        elif name == "butterfly":
+            self.props = [Prop("butterfly", center + toward_middle * 120, self.floor + self.H * 0.2, 19)]
+
+    def _end_activity(self, wave=True):
+        self.activity = None
+        self.props = []
+        if wave:
+            self._new_action("wave")
+
+    def _do_activity(self, now, pose, awake):
+        a = self.activity
+        name = a["name"]
+        elapsed = now - a["start"]
+        facing = 0.0
+        if now > a["until"] or (name == "sleep" and awake):
+            self._end_activity(wave=name != "sleep")
+            return pose
+
+        if name == "football":
+            facing = self._play_football(now, pose, a)
+        elif name == "butterfly":
+            facing = self._chase_butterfly(now, pose, a)
+        elif name == "run":
+            if a["target"] is None or abs(a["target"] - self.x) < 6:
+                a["target"] = self.area.left + 10 if self.x > (self.area.left + self.area.right - self.W) / 2 \
+                    else self.area.right - self.W - 10
+            facing = self._walk_toward(a["target"], 2.6, pose, elapsed)
+        elif name == "dance":
+            pose["bob"] = 3 * math.sin(elapsed * 9)
+            pose["left_arm"] = 150 + 35 * math.sin(elapsed * 9)
+            pose["right_arm"] = 30 - 35 * math.sin(elapsed * 9)
+            pose["lean"] = 6 * math.sin(elapsed * 4.5)
+            pose["legs"] = 0.6 * math.sin(elapsed * 9)
+        elif name == "jump":
+            pose["lift"] = 26 * abs(math.sin(elapsed * math.pi / 0.7))
+            pose["left_arm"], pose["right_arm"] = 165, 15
+        elif name == "wave":
+            pose["right_arm"] = -55 + 25 * math.sin(elapsed * 10)
+            pose["left_arm"] = 235 - 25 * math.sin(elapsed * 10) if elapsed > 2 else 112
+        elif name == "sleep":
+            pose["bob"] = 1.2 * math.sin(elapsed * 1.5)  # slow breathing
+            pose["lean"] = 3
+        self.turn += (facing - self.turn) * 0.15
+        return pose
+
+    def _walk_toward(self, target_x, speed_factor, pose, elapsed=1.0):
+        """Take one step toward target_x (window x). Returns the direction faced."""
+        dx = target_x - self.x
+        if abs(dx) < 1:
+            return 0.0
+        direction = 1 if dx > 0 else -1
+        speed = min(abs(dx), self.speed * speed_factor * min(1.0, elapsed / 0.4))
+        self.x += direction * speed
+        self._place()
+        self.step += speed * 0.12 / max(self.scale, 0.4)
+        swing = math.sin(self.step)
+        pose["legs"] = swing
+        pose["bob"] = -2.5 * abs(swing)
+        pose["lean"] = 5 * direction
+        pose["left_arm"] = 112 - 18 * swing
+        pose["right_arm"] = 68 - 18 * swing
+        self.look = (4 * direction, 0)
+        return direction
+
+    def _ball_physics(self, ball):
+        a = self.area
+        ground = a.bottom - ball.r - 2
+        ball.vy += 0.6
+        ball.cx += ball.vx
+        ball.cy += ball.vy
+        if ball.cy >= ground:
+            ball.cy = ground
+            ball.vy = -ball.vy * 0.45 if abs(ball.vy) > 2 else 0.0
+            ball.vx *= 0.97  # rolling slows down
+        if ball.cx - ball.r < a.left:
+            ball.cx, ball.vx = a.left + ball.r, abs(ball.vx) * 0.7
+        elif ball.cx + ball.r > a.right:
+            ball.cx, ball.vx = a.right - ball.r, -abs(ball.vx) * 0.7
+        ball.angle += math.degrees(ball.vx / ball.r)
+
+    def _play_football(self, now, pose, a):
+        ball = self.props[0]
+        self._ball_physics(ball)
+        center = self.x + self.W / 2
+        dx = ball.cx - center
+        direction = 1 if dx > 0 else -1
+        reach = ball.r + 24 * self.scale
+        on_ground = ball.cy >= self.area.bottom - ball.r - 2.5
+        if now < a["kick_until"]:  # kicking!
+            pose["legs"] = 1.4
+            pose["lean"] = -4 * a["kick_dir"]
+            pose["left_arm"], pose["right_arm"] = 140, 40
+            return a["kick_dir"]
+        if abs(dx) > reach:
+            return self._walk_toward(ball.cx - self.W / 2 - direction * reach * 0.8, 2.2, pose)
+        if on_ground and abs(ball.vx) < 3:
+            # kick it - toward the middle of the screen if the ball is near an edge
+            kick = direction
+            if ball.cx + kick * 220 > self.area.right or ball.cx + kick * 220 < self.area.left:
+                kick = -kick
+            ball.vx = kick * random.uniform(7, 13)
+            ball.vy = -random.uniform(3, 9)
+            a["kick_until"] = now + 0.25
+            a["kick_dir"] = kick
+            return kick
+        self.look = (5 * direction, -1)  # watch the ball
+        pose["left_arm"], pose["right_arm"] = 140, 40  # cheer
+        return 0.0
+
+    def _chase_butterfly(self, now, pose, a):
+        fly = self.props[0]
+        fly.t += self.FRAME
+        if a["target"] is None or now > a["retarget"]:
+            center = self.x + self.W / 2
+            a["target"] = (min(max(center + random.uniform(-260, 260), self.area.left + 30), self.area.right - 30),
+                           self.area.bottom - random.uniform(self.H * 0.55, self.H * 1.4))
+            a["retarget"] = now + random.uniform(1.5, 3)
+        tx, ty = a["target"]
+        fly.cx += (tx - fly.cx) * 0.03 + math.sin(fly.t * 5) * 1.2
+        fly.cy += (ty - fly.cy) * 0.03 + math.cos(fly.t * 7) * 1.5
+        center = self.x + self.W / 2
+        dx = fly.cx - center
+        direction = 1 if dx > 0 else -1
+        jumping = now - a["jump_start"] < 0.7
+        if jumping:
+            pose["lift"] = 30 * math.sin((now - a["jump_start"]) * math.pi / 0.7)
+            pose["left_arm"], pose["right_arm"] = 200, -20  # reaching up
+            self.look = (3 * direction, -6)
+            return direction
+        if abs(dx) > 30:
+            facing = self._walk_toward(fly.cx - self.W / 2, 1.8, pose)
+            self.look = (4 * direction, -5)
+            return facing
+        if random.random() < 0.04:
+            a["jump_start"] = now  # try to catch it!
+        self.look = (3 * direction, -6)
+        return 0.0
 
     def draw(self, c: Canvas, now=None):
         if not self.pose:
@@ -461,13 +690,20 @@ class Buddy:
         self._draw_caption(c, now)
 
     def _eye_open_amount(self, now, sleepy):
+        if self._sleeping():
+            return 0.1
         if now < self.blink_until:
             return 0.1
         if self.dragging:
             return 1.15  # surprised!
         return sleepy if self._resting() else 1.0
 
+    def _sleeping(self):
+        return self.activity is not None and self.activity["name"] == "sleep"
+
     def _resting(self):
+        if self.activity is not None:
+            return self._sleeping()  # wide awake while playing
         return self.state == "idle" and self.action["name"] == "rest" and not self.dragging
 
     def _zzz(self, c, now, x, y, color):

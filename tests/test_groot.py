@@ -667,6 +667,17 @@ def test_mac_window_draws_and_handles_mouse(monkeypatch):
             host.tick()
             mac_window.BuddyView.drawRect_(host.view, None)  # full drawing pass
     assert "redraw" in calls
+    # toys get their own windows, drawn and moved, and are closed when play ends
+    buddy.state = "idle"
+    buddy.perform("football")
+    for _ in range(20):
+        host.tick()
+    assert len(host.prop_windows) == 1
+    (window, view), = host.prop_windows.values()
+    mac_window.PropView.drawRect_(view, None)
+    buddy.perform("stop")
+    host.tick()
+    assert host.prop_windows == {}
     # window position is converted to Mac's bottom-left coordinates
     origin = host.window.setFrameOrigin_.call_args[0][0]
     assert origin == (buddy.x, 900.0 - buddy.y - buddy.H)
@@ -742,3 +753,50 @@ def test_natural_voice_prepares_sentences_in_parallel_but_plays_in_order(monkeyp
     voice.Speaker().say("First sentence is long. Second sentence here. Third one now!")
     assert played == ["First sentence is long.", "Second sentence here.", "Third one now!"]
     assert len(started) == 3 and time.monotonic() - began < 0.5  # prepared together, not one by one
+
+
+def test_play_football_kicks_the_ball_around():
+    from groot.buddy import Area, Buddy
+    from groot.gui import BuddyActions
+
+    buddy = Buddy(area=Area(0, 25, 1440, 820))
+    buddy.state = "idle"
+    assert "football" in BuddyActions(buddy).perform_action("football")
+    buddy.tick()
+    assert buddy.activity["name"] == "football" and len(buddy.props) == 1
+    ball = buddy.props[0]
+    start_x = ball.cx
+    moved = False
+    for _ in range(30 * 8):  # 8 seconds of play
+        buddy.tick()
+        moved = moved or abs(ball.cx - start_x) > 100
+        assert 0 <= ball.cx - ball.r and ball.cx + ball.r <= 1440  # stays on screen
+        assert ball.cy + ball.r <= 820 + 0.01  # never sinks below the floor
+    assert moved  # Groot kicked it
+
+
+def test_activity_ends_and_toys_disappear():
+    import time
+    from groot.buddy import Area, Buddy
+
+    buddy = Buddy(area=Area(0, 25, 1440, 820))
+    buddy.state = "idle"
+    buddy.perform("butterfly")
+    buddy.tick()
+    assert buddy.props and buddy.props[0].kind == "butterfly"
+    buddy.activity["until"] = time.monotonic() - 1
+    buddy.tick()
+    assert buddy.activity is None and buddy.props == []
+    buddy.perform("sleep")
+    buddy.tick()
+    assert buddy._eye_open_amount(time.monotonic(), 1.0) == 0.1  # eyes closed
+    buddy.state = "listening"  # "Hey Groot" wakes it up
+    buddy.tick()
+    assert buddy.activity is None
+
+
+def test_unknown_activity_is_explained():
+    from groot.buddy import Buddy
+    from groot.gui import BuddyActions
+
+    assert "can't" in BuddyActions(Buddy()).perform_action("fly a plane")

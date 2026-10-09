@@ -199,6 +199,42 @@ def start_notification_watcher(session, speaker, robot):
     return watcher
 
 
+ACTIVITY_WORDS = {
+    "football": "play football with a ball on the screen",
+    "butterfly": "chase a butterfly",
+    "dance": "dance",
+    "jump": "jump up and down",
+    "wave": "wave hello",
+    "sleep": "take a nap (until the user talks again)",
+    "run": "run around",
+    "stop": "stop the current activity",
+}
+
+BUDDY_TOOLS = [
+    {"name": "perform_action",
+     "description": "Make your little body on the user's screen do something fun, because the user asked "
+                    "(e.g. 'play football', 'let's dance', 'chase a butterfly', 'go to sleep'). Options: "
+                    + "; ".join(f"{name} = {what}" for name, what in ACTIVITY_WORDS.items()),
+     "input_schema": {"type": "object", "properties": {
+         "activity": {"type": "string", "enum": list(ACTIVITY_WORDS)}}, "required": ["activity"]}},
+]
+
+
+class BuddyActions:
+    """Lets the brain make the desktop buddy act things out."""
+
+    def __init__(self, buddy):
+        self.buddy = buddy
+
+    def perform_action(self, activity: str) -> str:
+        if activity not in ACTIVITY_WORDS:
+            return f"I can't do {activity} yet. I can: {', '.join(ACTIVITY_WORDS)}."
+        self.buddy.perform(activity)
+        if activity == "stop":
+            return "Stopped."
+        return f"Now doing it on the screen: {ACTIVITY_WORDS[activity]}."
+
+
 def make_host():
     """The window system: Apple's AppKit on Mac, Qt everywhere else."""
     if sys.platform == "darwin":
@@ -242,6 +278,7 @@ def run_gui(config, brain_kind: str) -> None:
 
             skills = Skills(config.data_dir, default_city=config.city, announce=announce,
                             slack_token=config.slack_token)
+            skills.integrations.append((BuddyActions(robot), BUDDY_TOOLS))
             brain = make_brain(config, brain_kind, skills)
             robot.set_text("Checking microphone...")
             ears = Listener(engine=config.stt_engine, whisper_model=config.whisper_model)

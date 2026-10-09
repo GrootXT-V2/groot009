@@ -88,6 +88,29 @@ class QtCanvas(Canvas):
         self.p.drawText(QRectF(x, y, w, h), TEXT_FLAGS, text)
 
 
+class QtPropWindow(QtWidgets.QWidget):
+    """A tiny see-through window for a toy (ball, butterfly); clicks pass through it."""
+
+    def __init__(self, prop):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.NoDropShadowWindowHint
+                         | Qt.WindowTransparentForInput | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setFixedSize(prop.W, prop.H)
+        self.prop = prop
+        self.move(int(prop.x), int(prop.y))
+
+    def paintEvent(self, event):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setCompositionMode(QtGui.QPainter.CompositionMode_Source)
+        p.fillRect(self.rect(), Qt.transparent)
+        p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
+        self.prop.draw(QtCanvas(p))
+        p.end()
+
+
 class QtBuddyWindow(QtWidgets.QWidget):
     def __init__(self, buddy: Buddy):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.NoDropShadowWindowHint)
@@ -105,6 +128,22 @@ class QtBuddyWindow(QtWidgets.QWidget):
         self.buddy.tick()
         self.move(int(self.buddy.x), int(self.buddy.y))
         self.update()
+        self._sync_props()
+
+    def _sync_props(self):
+        """Open, move and close the little windows for the toys on screen."""
+        if not hasattr(self, "prop_windows"):
+            self.prop_windows = {}
+        for prop in list(self.prop_windows):
+            if prop not in self.buddy.props:
+                self.prop_windows.pop(prop).close()
+        for prop in self.buddy.props:
+            window = self.prop_windows.get(prop)
+            if window is None:
+                window = self.prop_windows[prop] = QtPropWindow(prop)
+                window.show()
+            window.move(int(prop.x), int(prop.y))
+            window.update()
 
     def paintEvent(self, event):
         p = QtGui.QPainter(self)

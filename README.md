@@ -86,6 +86,10 @@ it falls back down.
 - **Say "Hey Groot"** → it stops, looks at you and listens. You can also ask
   straight away: "Hey Groot, what time is it?"
 - **Say "stop"** (or "you can stop", "that's all", "goodbye") → it goes back to playing.
+- **Ask it to play!** It acts things out on your screen:
+  - "Let's play football" ⚽ — a ball appears; Groot chases it and kicks it around the screen
+  - "Chase a butterfly" 🦋 — Groot follows a butterfly and jumps to catch it
+  - "Dance", "Jump", "Wave", "Run around", "Go to sleep" (zzz until you talk to it), "Stop playing"
 - **Click it** to start or stop talking. **Drag it** to pick it up and move it.
 - **Right-click** (or Ctrl+click) for the menu: Stay still, Little Groot voice,
   "I am Groot" mode, Quit.
