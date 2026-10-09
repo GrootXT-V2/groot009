@@ -197,7 +197,7 @@ questions so it can use them — Groot is told never to save passwords or other 
 | `GROOT_VOICE_PITCH` | `1.25` | Higher = smaller, cuter voice. `1.0` normal, `0.8` big deep Groot |
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
-| `GROOT_ROBOT_STYLE` | `fox` | `fox` (elegant, side view), `cute-fox` (round cartoon), `tree` or `robot` |
+| `GROOT_ROBOT_STYLE` | `fox` | `fox` (realistic red fox), `flat-fox` (flat illustration), `cute-fox` (round cartoon), `tree` or `robot` |
 | `GROOT_ROBOT_SIZE` | `0.6` | Desktop robot size (`1.0` = big) |
 | `GROOT_READ_NOTIFICATIONS` | `true` | Read new Mac notifications aloud (needs Full Disk Access) |
 | `SLACK_TOKEN` | — | Slack user token (`xoxp-...`) to let Groot read and send Slack messages |

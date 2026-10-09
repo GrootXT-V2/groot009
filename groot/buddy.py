@@ -50,6 +50,15 @@ FOX_CREAM = "#f7f0df"
 FOX_LEG = "#2a1a14"
 FOX_SOCK = "#5a4b44"  # walking fox's dark grey-brown socks
 
+# Realistic red fox colors
+RF_BACK = "#9f4318"      # darker rust along the back
+RF_SIDE = "#c9662b"      # rich orange sides
+RF_LIGHT = "#e2924f"     # lighter flanks and cheeks
+RF_WHITE = "#f4eee5"     # throat, chest, belly, tail tip
+RF_GREY = "#b9aca0"      # greyish underside of the tail
+RF_BLACK = "#231a16"     # leg "stockings", ear backs, nose
+RF_EYE = "#d99a2b"       # amber eyes
+
 # Robot colors
 WHITE = "#f4f6f8"
 SHADE = "#c9d1d9"
@@ -284,7 +293,7 @@ class Buddy:
         self.scale = size
         self.style = style  # "tree" (little tree creature) or "robot"
         # the walking fox is long (body plus a streaming tail), so it gets a wider box
-        self.design_left, self.design_w = (-20, 280) if style == "fox" else (DESIGN_LEFT, DESIGN_W)
+        self.design_left, self.design_w = (-20, 280) if style in ("fox", "flat-fox") else (DESIGN_LEFT, DESIGN_W)
         self.W = int(max(self.design_w * size, 190))
         self.H = int(self.CAPTION_H + DESIGN_H * size)
         self.speed = 1.6 * max(size, 0.4)  # walking speed in pixels per frame
@@ -707,7 +716,9 @@ class Buddy:
         if self.style == "robot":
             self._draw_robot(c, now)
         elif self.style == "fox":
-            self._draw_fox(c, now)
+            self._draw_fox(c, now, realistic=True)
+        elif self.style == "flat-fox":
+            self._draw_fox(c, now, realistic=False)
         elif self.style == "cute-fox":
             self._draw_cute_fox(c, now)
         else:
@@ -1122,7 +1133,7 @@ class Buddy:
             c.polygon([(62, 138), (84, 141), (66, 140 + opening)], "#5a1f18")
         c.restore()
 
-    def _draw_fox(self, c, now):
+    def _draw_fox(self, c, now, realistic=True):
         pose = self.pose
         oy = pose["bob"] - pose["lift"]
         awake = self.state in ("listening", "thinking", "speaking")
@@ -1137,7 +1148,9 @@ class Buddy:
             c.translate(2 * CX, 0)
             c.scale_xy(-1, 1)
         swish = 6 * math.sin(self.t * 2.4) + (8 if self.state == "listening" else 0)
-        if standing:
+        if realistic:
+            (self._real_fox_standing if standing else self._real_fox_sitting)(c, now, pose, oy, swish, awake)
+        elif standing:
             self._fox_standing(c, now, pose, oy, swish, awake)
         else:
             self._fox_sitting(c, now, pose, oy, swish, awake)
@@ -1250,6 +1263,181 @@ class Buddy:
         phase = step * 1.0 + offset
         stride, lift = 15, 10
         return hip_x - 2 + stride * math.cos(phase), ground - max(0.0, math.sin(phase)) * lift
+
+    # ---- the realistic red fox (side view, facing left; mirrored to face right)
+
+    @staticmethod
+    def _zigzag(points_top, bottom_y, start_x, end_x, teeth, depth):
+        """A strip whose lower edge is a fur fringe: top edge given, bottom zig-zags."""
+        pts = list(points_top)
+        for i in range(teeth, -1, -1):
+            x = start_x + (end_x - start_x) * i / teeth
+            pts.append((x, bottom_y + (depth if i % 2 else 0)))
+        return pts
+
+    def _rf_tufts(self, c, points, color, length=5, width=1.4):
+        """Little fur tufts sticking out along an edge, pointing down/back."""
+        for x, y in points:
+            c.line(x, y, x + length * 0.5, y + length, color, width)
+
+    def _rf_head(self, c, now, dx, dy, awake, relaxed, size=1.0):
+        """A red fox head in profile facing left; (dx, dy) shifts it into place."""
+        c.save()
+        c.translate(dx, dy)
+        if size != 1.0:  # grow or shrink around where the head meets the neck
+            c.translate(84, 192)
+            c.scale(size)
+            c.translate(-84, -192)
+        if self.state == "thinking":  # tilt the head while thinking
+            c.translate(80, 180)
+            c.rotate(-8 + 3 * math.sin(self.t * 1.5))
+            c.translate(-80, -180)
+        perk = -9 if self.state == "listening" else 2 * math.sin(self.t * 1.3)
+
+        # tall ears with black backs (far ear first)
+        for base, tip, front in (((80, 152), (90, 112), False), ((64, 154), (70, 110), True)):
+            c.save()
+            c.translate(base[0] + 8, base[1])
+            c.rotate(perk)
+            c.translate(-base[0] - 8, -base[1])
+            outer = [(base[0] - 6, base[1] + 2), tip, (base[0] + 20, base[1] - 2)]
+            c.polygon(outer, RF_BLACK if not front else RF_SIDE)
+            if front:
+                c.line(base[0] - 5, base[1] + 1, tip[0], tip[1], RF_BACK, 1.6)  # darker front edge
+                c.polygon([(tip[0] - 4, tip[1] + 14), tip, (tip[0] + 6, tip[1] + 15)], RF_BLACK)  # black tip
+            c.restore()
+
+        # skull and long narrow snout
+        head = (Shape(94, 162).cubic(92, 148, 80, 142, 68, 146).cubic(58, 150, 46, 160, 30, 168)
+                .cubic(24, 171, 18, 172, 16, 175).cubic(18, 179, 24, 181, 32, 182)
+                .cubic(42, 184, 50, 186, 56, 188).line(62, 194).line(66, 188).line(72, 196).line(76, 190)
+                .line(82, 196).cubic(92, 188, 96, 176, 94, 162).close())
+        c.gradient(head, (0, 142), (0, 196), [(0, RF_BACK), (0.35, RF_SIDE), (1, RF_LIGHT)])
+        # white cheeks and lower jaw, with a fluffy edge
+        cheek = [(20, 179), (34, 178), (48, 175), (60, 174), (70, 178), (78, 186), (82, 196), (76, 190),
+                 (72, 196), (66, 188), (62, 194), (56, 188), (44, 185), (30, 183)]
+        c.polygon(cheek, RF_WHITE)
+        c.oval(13, 171, 21, 178, RF_BLACK)  # nose
+        c.line(20, 180, 38, 180.5, "#4a2a1e", 1.2)  # mouth line
+        if self.state == "speaking":
+            opening = 1 + 5 * sum(self.mouth) / len(self.mouth)
+            c.polygon([(21, 180), (42, 181), (26, 180 + opening)], "#5a1f18")
+
+        # amber eye with a slit pupil and a dark tear line
+        ex, ey = 56, 160
+        open_amount = self._eye_open_amount(now, 1.0)
+        squint = relaxed and not awake and self.activity is None and not self.dragging
+        if squint and open_amount > 0.2:
+            open_amount = 0.45  # a calm, half-closed look
+        c.line(ex - 7, ey + 3, ex - 18, ey + 10, "#5a2c18", 2)  # tear line toward the muzzle
+        if open_amount < 0.2:
+            c.line(ex - 7, ey, ex + 6, ey - 1, RF_BLACK, 2)
+        else:
+            h = 4.5 * open_amount
+            eye = Shape(ex - 7, ey).cubic(ex - 3, ey - h, ex + 3, ey - h, ex + 7, ey - 1) \
+                .cubic(ex + 3, ey + h * 0.8, ex - 3, ey + h * 0.8, ex - 7, ey).close()
+            c.fill_stroke(eye, RF_EYE, RF_BLACK, 1.4)
+            look = -1.5 if not self.look[0] else -abs(self.look[0]) * 0.3
+            c.line(ex + look, ey - h * 0.8, ex + look, ey + h * 0.7, RF_BLACK, 1.8)  # slit pupil
+            c.oval(ex + 2, ey - 2.5, ex + 3.6, ey - 1, "#ffffff")
+        for wy, wx in ((179, 4), (181, 8), (183, 2)):  # whiskers
+            c.line(26, wy - 1, 26 - 14, wy + wx * 0.5 - 2, ("#ffffff", 0.7), 0.8)
+        c.restore()
+
+    def _rf_tail(self, c, base_x, base_y, angle, wrap=False):
+        """A big bushy tail: darker on top, greyish underneath, white tip, fluffy edge."""
+        c.save()
+        c.translate(base_x, base_y)
+        c.rotate(angle)
+        if wrap:  # curled along the ground around the paws (sitting)
+            outer = (Shape(0, 0).cubic(10, 16, -10, 30, -50, 32).cubic(-80, 33, -104, 28, -116, 18)
+                     .cubic(-110, 10, -92, 12, -70, 13).cubic(-40, 14, -14, 8, -8, -4).close())
+            tip = [(-116, 18), (-104, 27), (-96, 31), (-94, 25), (-90, 31), (-88, 22), (-84, 27), (-84, 15),
+                   (-96, 12), (-108, 11)]
+            c.gradient(outer, (0, 0), (0, 33), [(0, RF_BACK), (0.5, RF_SIDE), (1, RF_GREY)])
+            c.polygon(tip, RF_WHITE)
+        else:  # streaming out behind (standing / walking)
+            outer = (Shape(0, 0).cubic(24, -14, 52, -10, 82, 2).cubic(70, 22, 40, 28, 4, 22).close())
+            tip = [(82, 2), (66, -6), (60, -3), (64, 2), (58, 4), (63, 9), (57, 12), (64, 15), (72, 16)]
+            c.gradient(outer, (0, -14), (0, 28), [(0, RF_BACK), (0.45, RF_SIDE), (1, RF_GREY)])
+            c.polygon(tip, RF_WHITE)
+            self._rf_tufts(c, [(14, 22), (26, 24), (38, 25), (50, 23)], RF_GREY, 4, 1.6)
+        c.restore()
+
+    def _rf_leg(self, c, hip, foot, bend, far, hind):
+        knee = self._knee(hip, foot, 30, 36, bend)
+        fur = RF_BACK if far else RF_SIDE
+        black = "#140e0b" if far else RF_BLACK
+        c.line(hip[0], hip[1], knee[0], knee[1], fur, 15 if hind else 8)
+        mid = (knee[0] + (foot[0] - knee[0]) * 0.15, knee[1] + (foot[1] - knee[1]) * 0.15)
+        c.line(knee[0], knee[1], mid[0], mid[1], fur, 7)
+        c.line(mid[0], mid[1], foot[0], foot[1], black, 5.5)  # black stocking
+        c.oval(foot[0] - 7, foot[1] - 2.5, foot[0] + 3, foot[1] + 3, black)
+
+    def _real_fox_standing(self, c, now, pose, oy, swish, awake):
+        walking = abs(pose["legs"]) > 0.01
+        kicking = self.activity is not None and now < self.activity.get("kick_until", 0)
+        step = self.step if walking else 0.0
+        oy += -1.4 * abs(math.sin(step * 2)) if walking else 0.0
+        ground = 291
+
+        self._rf_tail(c, 176, 204 + oy, -8 + 0.6 * swish + 4 * math.sin(self.t * 2.6))
+        for hip_x, hip_y, offset, bend, hind in ((148, 220, math.pi, 1, True), (78, 222, math.pi * 1.5, -1, False)):
+            self._rf_leg(c, (hip_x, hip_y + oy), self._paw(hip_x, offset, step, walking, ground), bend, True, hind)
+
+        # body: slightly arched back, deep chest, tucked belly
+        body = (Shape(54, 214 + oy).cubic(52, 200 + oy, 60, 192 + oy, 74, 190 + oy)
+                .cubic(96, 186 + oy, 120, 192 + oy, 140, 190 + oy).cubic(160, 188 + oy, 178, 194 + oy, 182, 208 + oy)
+                .cubic(186, 222 + oy, 178, 236 + oy, 166, 238 + oy).cubic(150, 240 + oy, 140, 232 + oy, 128, 230 + oy)
+                .cubic(110, 228 + oy, 92, 236 + oy, 78, 238 + oy).cubic(62, 238 + oy, 54, 228 + oy, 54, 214 + oy).close())
+        c.gradient(body, (0, 186 + oy), (0, 240 + oy), [(0, RF_BACK), (0.4, RF_SIDE), (1, RF_LIGHT)])
+        self._rf_tufts(c, [(76, 236 + oy), (88, 235 + oy), (100, 233 + oy), (112, 231 + oy)],
+                       ("#f4eee5", 0.85), 4, 1.6)  # pale fluffy belly
+        neck = (Shape(52, 186 + oy).cubic(64, 176 + oy, 82, 182 + oy, 88, 196 + oy).line(56, 224 + oy)
+                .cubic(46, 210 + oy, 46, 194 + oy, 52, 186 + oy).close())
+        c.gradient(neck, (0, 176 + oy), (0, 224 + oy), [(0, RF_BACK), (0.5, RF_SIDE), (1, RF_LIGHT)])
+        c.polygon([(40, 190 + oy), (48, 196 + oy), (53, 206 + oy), (57, 216 + oy), (55, 228 + oy), (50, 222 + oy),
+                   (51, 214 + oy), (45, 214 + oy), (47, 206 + oy), (41, 204 + oy), (43, 196 + oy)], RF_WHITE)  # chest
+        self._rf_tufts(c, [(150, 236 + oy), (160, 237 + oy), (170, 233 + oy)], RF_SIDE, 5, 2)  # fluffy thigh
+
+        for hip_x, hip_y, offset, bend, hind in ((156, 222, 0.0, 1, True), (66, 224, math.pi / 2, -1, False)):
+            paw = self._paw(hip_x, offset, step, walking, ground)
+            if kicking and not hind:
+                paw = (hip_x - 30, ground - 22)  # front paw swings out to kick
+            self._rf_leg(c, (hip_x, hip_y + oy), paw, bend, False, hind)
+
+        self._rf_head(c, now, 0, oy, awake, relaxed=False)
+
+    def _real_fox_sitting(self, c, now, pose, oy, swish, awake):
+        # haunch and back, sitting upright
+        body = (Shape(108, 146 + oy).cubic(146, 156 + oy, 170, 212 + oy, 166, 260 + oy)
+                .cubic(164, 286 + oy, 148, 296 + oy, 124, 296 + oy).line(104, 296 + oy)
+                .cubic(98, 268 + oy, 92, 230 + oy, 96, 204 + oy).cubic(98, 180 + oy, 98, 162 + oy, 108, 146 + oy).close())
+        c.gradient(body, (100, 0), (170, 0), [(0, RF_LIGHT), (0.45, RF_SIDE), (1, RF_BACK)])
+        c.fill_stroke(Shape(146, 232 + oy).cubic(162, 248 + oy, 164, 276 + oy, 148, 292 + oy)
+                      .cubic(156, 270 + oy, 154, 250 + oy, 146, 232 + oy).close(), RF_BACK)  # haunch shading
+        # white chest with a fluffy fringe
+        chest = [(84, 150 + oy), (98, 158 + oy), (110, 176 + oy), (116, 200 + oy), (116, 222 + oy), (110, 236 + oy),
+                 (106, 230 + oy), (104, 240 + oy), (100, 230 + oy), (96, 236 + oy), (95, 222 + oy), (91, 226 + oy),
+                 (93, 208 + oy), (89, 206 + oy), (92, 190 + oy), (88, 176 + oy)]
+        c.polygon(chest, RF_WHITE)
+        # front legs: orange at the top, black stockings below
+        waving = ((self.activity is not None and self.activity["name"] == "wave")
+                  or (self.activity is None and not awake and self.action["name"] == "wave"))
+        for i, (top_x, paw_x) in enumerate(((104, 98), (116, 114))):
+            if waving and i == 0:
+                lift = 8 * math.sin(self.t * 10)
+                c.line(top_x, 230 + oy, 92, 226 + oy, RF_SIDE, 9)
+                c.line(92, 226 + oy, 78, 220 + oy + lift, RF_BLACK, 6)
+                c.oval(70, 215 + oy + lift, 82, 224 + oy + lift, RF_BLACK)
+                continue
+            dangle = 6 if self.dragging else 0
+            c.line(top_x, 230 + oy, (top_x + paw_x) / 2, 256 + oy, RF_SIDE if i else RF_BACK, 9)
+            c.line((top_x + paw_x) / 2, 254 + oy, paw_x, 292 + oy + dangle, RF_BLACK, 6)
+            c.oval(paw_x - 9, 289 + oy + dangle, paw_x + 4, 296 + oy + dangle, RF_BLACK)
+        # tail wrapped around the paws
+        self._rf_tail(c, 160, 262 + oy, swish * 0.3, wrap=True)
+        self._rf_head(c, now, 30, -40 + oy, awake, relaxed=True, size=1.18)
 
     def _draw_caption(self, c, now):
         if not self.caption or now > self.caption_until:
