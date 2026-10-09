@@ -252,8 +252,12 @@ class PhoneBrain:
 
 # ------------------------------------------------------------------ the web server
 
-def make_handler(phone_brain, frames_json_gz, key):
-    page = APP_PAGE.read_bytes()
+def make_handler(phone_brain, frames_json_gz, key, name="Groot"):
+    page = (APP_PAGE.read_text(encoding="utf-8")
+            .replace("<title>Groot</title>", f"<title>{name}</title>")
+            .replace('apple-mobile-web-app-title" content="Groot"', f'apple-mobile-web-app-title" content="{name}"')
+            .encode("utf-8"))
+    icon_png = ASSETS / "app-icon.png"
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -280,10 +284,15 @@ def make_handler(phone_brain, frames_json_gz, key):
             if url.path in ("/", "/index.html"):
                 return self._send(200, page, "text/html; charset=utf-8")
             if url.path == "/manifest.webmanifest":
-                manifest = {"name": "Groot", "short_name": "Groot", "display": "standalone",
-                            "background_color": "#bfe3f2", "theme_color": "#bfe3f2",
-                            "start_url": "/", "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}
+                icons = ([{"src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}]
+                         if icon_png.is_file() else [])
+                icons.append({"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"})
+                manifest = {"name": name, "short_name": name, "display": "standalone",
+                            "orientation": "portrait", "background_color": "#bfe3f2", "theme_color": "#bfe3f2",
+                            "start_url": "/", "icons": icons}
                 return self._send(200, json.dumps(manifest).encode(), "application/manifest+json")
+            if url.path in ("/icon.png", "/apple-touch-icon.png") and icon_png.is_file():
+                return self._send(200, icon_png.read_bytes(), "image/png", {"Cache-Control": "public, max-age=86400"})
             if url.path in ("/icon.svg", "/favicon.ico"):
                 icon = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" '
                         'rx="22" fill="#bfe3f2"/><text x="50" y="68" font-size="60" text-anchor="middle">🦊</text></svg>')
@@ -293,11 +302,11 @@ def make_handler(phone_brain, frames_json_gz, key):
             if url.path == "/api/frames":
                 return self._send(200, frames_json_gz, "application/json", {"Content-Encoding": "gzip"})
             if url.path.startswith("/api/asset/"):
-                name = url.path.rsplit("/", 1)[-1]
+                asset = url.path.rsplit("/", 1)[-1]
                 allowed = {p.name: p for p in ASSETS.glob("*.png")} if ASSETS.is_dir() else {}
-                if name not in allowed:
+                if asset not in allowed:
                     return self._send(404, b"{}")
-                return self._send(200, allowed[name].read_bytes(), "image/png",
+                return self._send(200, allowed[asset].read_bytes(), "image/png",
                                   {"Cache-Control": "private, max-age=86400"})
             if url.path.startswith("/api/audio/"):
                 audio = phone_brain.audio.get(url.path.rsplit("/", 1)[-1])
@@ -392,7 +401,7 @@ def run_phone(config, brain_kind: str) -> None:
     print("Preparing the animations...")
     frames = gzip.compress(json.dumps(build_frames(config.robot_style), separators=(",", ":")).encode())
     key = phone_key(config.data_dir)
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), make_handler(phone_brain, frames, key))
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), make_handler(phone_brain, frames, key, config.name))
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     print(f"\n{config.name} for your phone is running! Keep this window open.")
@@ -404,6 +413,9 @@ def run_phone(config, brain_kind: str) -> None:
     else:
         print("\nFor talking with the microphone (and using it away from home), install the free tunnel:\n"
               "  brew install cloudflared\nthen start this again: it will print a secure https link.")
+    print("\nPut it on your phone's home screen: open the link, then")
+    print("  iPhone (Safari): tap Share  ->  Add to Home Screen")
+    print("  Android (Chrome): tap the 3-dot menu  ->  Add to Home screen / Install app")
     print("\nKeep the link private - it includes your secret key. Press Ctrl+C to stop.")
     try:
         while True:

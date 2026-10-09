@@ -977,3 +977,24 @@ def test_phone_serves_only_fox_pictures(tmp_path):
         assert _request(base + "/api/asset/red-white-serious-fox.json")[0] == 404
     finally:
         server.shutdown()
+
+
+def test_phone_home_screen_icon_and_name(tmp_path):
+    import gzip
+    import json
+    import threading
+    from http.server import ThreadingHTTPServer
+    from groot.phone import PhoneActions, PhoneBrain, make_handler
+
+    phone = PhoneBrain(SimpleNamespace(reply=lambda t: "hi"), Skills(tmp_path, mac_apps=False), PhoneActions())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(phone, gzip.compress(b"{}"), "k" * 24, "Kurama"))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        status, body = _request(base + "/icon.png", key=None)  # the icon is public, like the page
+        assert status == 200 and body[:4] == b"\x89PNG"
+        manifest = json.loads(_request(base + "/manifest.webmanifest", key=None)[1])
+        assert manifest["name"] == "Kurama" and manifest["icons"][0]["src"] == "/icon.png"
+        assert b"<title>Kurama</title>" in _request(base + "/", key=None)[1]
+    finally:
+        server.shutdown()
