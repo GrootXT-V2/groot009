@@ -104,7 +104,7 @@ folder and set it up again.
 | `GROOT_STT` | `google` | `google` (free, online) or `whisper` (offline; `pip install openai-whisper`) |
 | `GROOT_WHISPER_MODEL` | `base` | Whisper size: `tiny`, `base`, `small`, `medium` |
 | `GROOT_VOICE_RATE` | `180` | Speaking speed |
-| `GROOT_VOICE` | auto | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`). Auto picks a fast-starting one; Siri voices can lag a few seconds |
+| `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
 | `GROOT_CITY` | — | Home city for weather |
 
 Notes are saved in `~/.groot/notes.json`.

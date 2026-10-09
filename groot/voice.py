@@ -1,35 +1,9 @@
 """Ears (speech-to-text) and mouth (text-to-speech)."""
 
-import re
 import shutil
 import subprocess
 import sys
 import threading
-
-# Classic Mac voices start speaking almost instantly. The default system voice
-# is often a Siri voice, which can take several seconds to start each time.
-FAST_MAC_VOICES = ["Samantha", "Daniel", "Karen", "Moira", "Tessa", "Rishi", "Fred"]
-
-
-def mac_voices() -> list:
-    """Names of the voices installed on this Mac."""
-    try:
-        output = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
-    except Exception:
-        return []
-    names = []
-    for line in output.splitlines():
-        match = re.match(r"^(.+?)\s{2,}[a-z]{2,3}[_-][A-Za-z]{2,}", line)
-        if match:
-            names.append(match.group(1).strip())
-    return names
-
-
-def pick_fast_voice(installed: list) -> str:
-    for voice in FAST_MAC_VOICES:
-        if voice in installed:
-            return voice
-    return ""  # fall back to the system default
 
 
 class Speaker:
@@ -41,32 +15,18 @@ class Speaker:
         # so use the built-in `say` command there instead.
         self.use_mac_say = sys.platform == "darwin" and shutil.which("say") is not None
         self._process = None
-        if self.use_mac_say:
-            if not self.voice:
-                self.voice = pick_fast_voice(mac_voices())
-            # Load the voice now (silently) so the first real sentence starts quickly
-            threading.Thread(target=self._warm_up, daemon=True).start()
-        else:
+        if not self.use_mac_say:
             import pyttsx3
 
             self.pyttsx3 = pyttsx3
 
-    def _mac_command(self) -> list:
-        command = ["say", "-r", str(self.rate)]
-        if self.voice:
-            command += ["-v", self.voice]
-        return command
-
-    def _warm_up(self) -> None:
-        try:
-            subprocess.run(self._mac_command() + [" "], timeout=30, check=False)
-        except Exception:
-            pass
-
     def say(self, text: str) -> None:
         with self._lock:
             if self.use_mac_say:
-                self._process = subprocess.Popen(self._mac_command() + [text])
+                command = ["say", "-r", str(self.rate)]
+                if self.voice:
+                    command += ["-v", self.voice]
+                self._process = subprocess.Popen(command + [text])
                 self._process.wait()
                 self._process = None
                 return
