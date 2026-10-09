@@ -54,6 +54,9 @@ class QtCanvas(Canvas):
     def scale(self, factor):
         self.p.scale(factor, factor)
 
+    def scale_xy(self, sx, sy):
+        self.p.scale(sx, sy)
+
     def fill_stroke(self, shape, fill=None, outline=None, width=0):
         if outline:
             pen = QtGui.QPen(self._color(outline), width)

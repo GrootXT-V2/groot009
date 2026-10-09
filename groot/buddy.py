@@ -42,6 +42,13 @@ SOCK = "#3a2a26"
 EAR_INSIDE = "#ffd0b8"
 FOX_GLOW = {"listening": "#3ee86f", "thinking": "#f5c542"}
 
+# Elegant flat-style fox colors
+FOX_ORANGE = "#dc7435"
+FOX_SHADE = "#c96128"
+FOX_RUST = "#c0452c"
+FOX_CREAM = "#f7f0df"
+FOX_LEG = "#2a1a14"
+
 # Robot colors
 WHITE = "#f4f6f8"
 SHADE = "#c9d1d9"
@@ -179,6 +186,7 @@ class Canvas:
     def translate(self, dx, dy): raise NotImplementedError
     def rotate(self, degrees): raise NotImplementedError
     def scale(self, factor): raise NotImplementedError
+    def scale_xy(self, sx, sy): raise NotImplementedError  # e.g. (-1, 1) mirrors left-right
     def fill_stroke(self, shape, fill=None, outline=None, width=0): raise NotImplementedError
     def clip(self, shape): raise NotImplementedError
     def fill_rect(self, x, y, w, h, color): raise NotImplementedError
@@ -307,6 +315,7 @@ class Buddy:
         self.turn = 0.0  # -1 facing left, 0 facing you, 1 facing right
         self.fall_speed = 0.0
         self.activity = None  # something you asked Groot to do, like playing football
+        self.face_right = False  # side-view characters remember which way they face
         self.props = []  # toys on screen (each gets its own little window)
 
         self.set_area(area)
@@ -695,6 +704,8 @@ class Buddy:
             self._draw_robot(c, now)
         elif self.style == "fox":
             self._draw_fox(c, now)
+        elif self.style == "cute-fox":
+            self._draw_cute_fox(c, now)
         else:
             self._draw_tree(c, now)
         c.restore()
@@ -924,7 +935,7 @@ class Buddy:
         c.line(x1, y1, x2, y2, FUR_LINE, width + 3)
         c.line(x1, y1, x2, y2, FUR, width)
 
-    def _draw_fox(self, c, now):
+    def _draw_cute_fox(self, c, now):
         pose = self.pose
         cx = CX
         oy = pose["bob"] - pose["lift"]
@@ -1040,6 +1051,135 @@ class Buddy:
 
         if self._resting():
             self._zzz(c, now, cx + 54, 84 + oy, "#c58a5a")
+
+    # ---- the elegant fox (flat illustration style, seen from the side)
+
+    def _fox_tail(self, c, x, y, angle, size=1.0):
+        """Big tail growing from (x, y), pointing up and turned by `angle` degrees."""
+        c.save()
+        c.translate(x, y)
+        c.rotate(angle)
+        c.scale(size)
+        tail = (Shape(0, 0).cubic(40, 0, 52, -36, 44, -68).cubic(40, -84, 32, -94, 24, -98)
+                .cubic(28, -80, 26, -58, 18, -38).cubic(12, -22, 6, -10, 0, 0).close())
+        c.fill_stroke(tail, FOX_RUST)
+        c.polygon([(24, -98), (38, -88), (46, -68), (39, -70), (42, -59), (34, -64), (33, -53),
+                   (27, -62), (26, -72), (28, -84)], FOX_CREAM)  # white tip with a jagged edge
+        c.restore()
+
+    def _fox_head(self, c, now, dx, dy, awake):
+        """Head in profile, facing left, with its nose near (58 + dx, 134 + dy)."""
+        c.save()
+        c.translate(dx, dy)
+        if self.state == "thinking":  # tilt the head while thinking
+            c.translate(120, 140)
+            c.rotate(-8 + 3 * math.sin(self.t * 1.5))
+            c.translate(-120, -140)
+        perk = -10 if self.state == "listening" else 2 * math.sin(self.t * 1.3)
+        for base_x, tip_x, color in ((126, 132, FOX_SHADE), (112, 116, FOX_ORANGE)):  # back ear, front ear
+            c.save()
+            c.translate(base_x + 8, 104)
+            c.rotate(perk)
+            c.translate(-base_x - 8, -104)
+            c.polygon([(base_x - 6, 106), (tip_x, 66), (base_x + 16, 104)], color)
+            if color == FOX_ORANGE:
+                c.polygon([(base_x - 1, 102), (tip_x + 1, 80), (base_x + 9, 102)], FOX_RUST)
+            c.restore()
+        head = (Shape(140, 118).cubic(134, 100, 118, 94, 104, 100).cubic(92, 106, 78, 118, 60, 131)
+                .line(57, 135).cubic(70, 142, 82, 146, 91, 146).line(98, 152).line(104, 147)
+                .line(112, 155).line(118, 149).cubic(132, 146, 142, 134, 140, 118).close())
+        c.fill_stroke(head, FOX_ORANGE)
+        muzzle = (Shape(58, 135).cubic(76, 134, 96, 131, 110, 137).line(116, 150).line(106, 146)
+                  .line(99, 152).line(92, 146).cubic(80, 146, 68, 142, 58, 135).close())
+        c.fill_stroke(muzzle, FOX_CREAM)
+        c.oval(54, 130, 62, 137, FOX_LEG)  # nose
+
+        # eye: calm and closed while relaxing, open when talking with you
+        ex, ey = 96, 118
+        open_amount = self._eye_open_amount(now, 0.0 if not awake else 1.0)
+        if not awake and now >= self.blink_until and not self.dragging and self.activity is None:
+            open_amount = 0.1  # relaxed, like in a calm illustration
+        glow = FOX_GLOW.get(self.state)
+        if glow:
+            c.oval(ex - 10, ey - 9, ex + 10, ey + 9, (glow, 0.3))
+        if open_amount < 0.2:
+            c.arc(ex - 8, ey - 4, ex + 8, ey + 4, 190, 160, FOX_RUST, 2.4)
+        else:
+            look_x, look_y = self.look
+            ox, oy2 = -abs(look_x) * 0.3, look_y * 0.3
+            c.oval(ex - 5 + ox, ey - 6 * open_amount + oy2, ex + 5 + ox, ey + 6 * open_amount + oy2, FOX_LEG)
+            c.oval(ex - 3 + ox, ey - 4 * open_amount + oy2, ex + ox, ey - 1 * open_amount + oy2, "#ffffff")
+        if self.state == "speaking":
+            opening = 1 + 6 * sum(self.mouth) / len(self.mouth)
+            c.polygon([(62, 138), (84, 141), (66, 140 + opening)], "#5a1f18")
+        c.restore()
+
+    def _draw_fox(self, c, now):
+        pose = self.pose
+        oy = pose["bob"] - pose["lift"]
+        awake = self.state in ("listening", "thinking", "speaking")
+        if abs(self.turn) > 0.5:
+            self.face_right = self.turn > 0
+        if abs(pose["legs"]) > 0.01:
+            self._stand_until = now + 0.6  # keep standing a moment so it doesn't flicker
+        standing = now < getattr(self, "_stand_until", 0.0)
+
+        c.save()
+        if getattr(self, "face_right", False):  # drawn facing left; mirror to face right
+            c.translate(2 * CX, 0)
+            c.scale_xy(-1, 1)
+        swish = 6 * math.sin(self.t * 2.4) + (8 if self.state == "listening" else 0)
+        if standing:
+            self._fox_standing(c, now, pose, oy, swish, awake)
+        else:
+            self._fox_sitting(c, now, pose, oy, swish, awake)
+        c.restore()
+        if self._resting():
+            self._zzz(c, now, CX + 40, 84 + oy, "#c58a5a")
+
+    def _fox_sitting(self, c, now, pose, oy, swish, awake):
+        self._fox_tail(c, 142, 294 + oy, swish)
+        body = (Shape(112, 150 + oy).cubic(150, 160 + oy, 172, 215 + oy, 168, 262 + oy)
+                .cubic(166, 288 + oy, 150, 298 + oy, 124, 298 + oy).line(104, 298 + oy)
+                .cubic(98, 270 + oy, 92, 232 + oy, 96, 205 + oy).cubic(98, 180 + oy, 100, 165 + oy, 112, 150 + oy)
+                .close())
+        c.fill_stroke(body, FOX_ORANGE)
+        c.fill_stroke(Shape(148, 236 + oy).cubic(162, 250 + oy, 164, 276 + oy, 150, 292 + oy)
+                      .cubic(158, 270 + oy, 156, 252 + oy, 148, 236 + oy).close(), FOX_SHADE)  # haunch shading
+        bib = (Shape(82, 148 + oy).cubic(102, 156 + oy, 118, 180 + oy, 117, 214 + oy)
+               .cubic(116, 236 + oy, 110, 250 + oy, 104, 254 + oy).cubic(98, 236 + oy, 94, 212 + oy, 94, 192 + oy)
+               .cubic(93, 174 + oy, 88, 160 + oy, 82, 148 + oy).close())
+        c.fill_stroke(bib, FOX_CREAM)
+        # front legs; one paw lifts to wave
+        waving = ((self.activity is not None and self.activity["name"] == "wave")
+                  or (self.activity is None and not awake and self.action["name"] == "wave"))
+        for i, (top_x, paw_x) in enumerate(((108, 100), (120, 116))):
+            if waving and i == 0:
+                lift = 8 * math.sin(self.t * 10)
+                c.line(top_x, 232 + oy, 84, 222 + oy + lift, FOX_LEG, 7)
+                c.oval(76, 216 + oy + lift, 90, 226 + oy + lift, FOX_LEG)
+                continue
+            dangle = 6 if self.dragging else 0
+            c.line(top_x, 232 + oy, paw_x, 292 + oy + dangle, FOX_LEG, 7)
+            c.oval(paw_x - 12, 289 + oy + dangle, paw_x + 5, 298 + oy + dangle, FOX_LEG)
+        self._fox_head(c, now, 0, oy, awake)
+
+    def _fox_standing(self, c, now, pose, oy, swish, awake):
+        swing = pose["legs"]
+        self._fox_tail(c, 164, 212 + oy, 38 + swish, 0.85)
+        # four thin legs, trotting (diagonal pairs move together)
+        for top_x, phase in ((100, swing), (112, -swing), (150, -swing), (162, swing)):
+            up = max(0.0, phase) * 7
+            paw_x = top_x - 6 * phase
+            c.line(top_x, 232 + oy, paw_x, 292 + oy - up, FOX_LEG, 6)
+            c.oval(paw_x - 11, 288 + oy - up, paw_x + 4, 297 + oy - up, FOX_LEG)
+        body = (Shape(92, 206 + oy).cubic(110, 196 + oy, 150, 194 + oy, 168, 204 + oy)
+                .cubic(182, 212 + oy, 180, 236 + oy, 164, 240 + oy).cubic(140, 244 + oy, 110, 244 + oy, 96, 238 + oy)
+                .cubic(84, 232 + oy, 82, 214 + oy, 92, 206 + oy).close())
+        c.fill_stroke(body, FOX_ORANGE)
+        c.fill_stroke(Shape(86, 200 + oy).cubic(100, 206 + oy, 108, 222 + oy, 104, 240 + oy)
+                      .cubic(94, 238 + oy, 86, 228 + oy, 85, 214 + oy).close(), FOX_CREAM)  # chest
+        self._fox_head(c, now, -12, 62 + oy, awake)
 
     def _draw_caption(self, c, now):
         if not self.caption or now > self.caption_until:

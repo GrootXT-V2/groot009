@@ -658,7 +658,7 @@ def test_mac_window_draws_and_handles_mouse(monkeypatch):
     mac_window, appkit, calls = _fake_appkit(monkeypatch)
     host = mac_window.MacHost()
     assert host.area == (0.0, 25.0, 1440.0, 820.0)  # menu bar and Dock left out
-    for style in ("fox", "tree", "robot"):
+    for style in ("fox", "cute-fox", "tree", "robot"):
         buddy = Buddy(style=style, area=host.area)
         buddy.caption = "Hi! I'm Groot."
         host.show(buddy)

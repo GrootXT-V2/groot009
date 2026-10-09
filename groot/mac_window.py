@@ -85,6 +85,11 @@ class MacCanvas(Canvas):
         t.scaleBy_(factor)
         t.concat()
 
+    def scale_xy(self, sx, sy):
+        t = self._transform()
+        t.scaleXBy_yBy_(sx, sy)
+        t.concat()
+
     def fill_stroke(self, shape, fill=None, outline=None, width=0):
         path = self._path(shape)
         if fill:
