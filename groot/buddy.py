@@ -48,6 +48,7 @@ FOX_SHADE = "#c96128"
 FOX_RUST = "#c0452c"
 FOX_CREAM = "#f7f0df"
 FOX_LEG = "#2a1a14"
+FOX_SOCK = "#5a4b44"  # walking fox's dark grey-brown socks
 
 # Robot colors
 WHITE = "#f4f6f8"
@@ -282,7 +283,9 @@ class Buddy:
         self.name = name
         self.scale = size
         self.style = style  # "tree" (little tree creature) or "robot"
-        self.W = int(max(DESIGN_W * size, 190))
+        # the walking fox is long (body plus a streaming tail), so it gets a wider box
+        self.design_left, self.design_w = (-20, 280) if style == "fox" else (DESIGN_LEFT, DESIGN_W)
+        self.W = int(max(self.design_w * size, 190))
         self.H = int(self.CAPTION_H + DESIGN_H * size)
         self.speed = 1.6 * max(size, 0.4)  # walking speed in pixels per frame
         self.on_quit = lambda: None  # set by the window
@@ -693,7 +696,8 @@ class Buddy:
         now = time.monotonic() if now is None else now
         c.save()
         # the character is designed on a 240 x 310 grid; scale it into the window
-        c.translate(self.W / 2 - (DESIGN_LEFT + DESIGN_W / 2) * self.scale, self.CAPTION_H - DESIGN_TOP * self.scale)
+        c.translate(self.W / 2 - (self.design_left + self.design_w / 2) * self.scale,
+                    self.CAPTION_H - DESIGN_TOP * self.scale)
         c.scale(self.scale)
         lean = self.pose.get("lean", 0.0)
         if lean:  # tilt the whole body around its feet
@@ -1067,10 +1071,14 @@ class Buddy:
                    (27, -62), (26, -72), (28, -84)], FOX_CREAM)  # white tip with a jagged edge
         c.restore()
 
-    def _fox_head(self, c, now, dx, dy, awake):
-        """Head in profile, facing left, with its nose near (58 + dx, 134 + dy)."""
+    def _fox_head(self, c, now, dx, dy, awake, relaxed=True, size=1.0):
+        """Head in profile, facing left; (118, 150) + (dx, dy) is where it joins the neck."""
         c.save()
         c.translate(dx, dy)
+        if size != 1.0:
+            c.translate(118, 150)
+            c.scale(size)
+            c.translate(-118, -150)
         if self.state == "thinking":  # tilt the head while thinking
             c.translate(120, 140)
             c.rotate(-8 + 3 * math.sin(self.t * 1.5))
@@ -1097,7 +1105,7 @@ class Buddy:
         # eye: calm and closed while relaxing, open when talking with you
         ex, ey = 96, 118
         open_amount = self._eye_open_amount(now, 0.0 if not awake else 1.0)
-        if not awake and now >= self.blink_until and not self.dragging and self.activity is None:
+        if relaxed and not awake and now >= self.blink_until and not self.dragging and self.activity is None:
             open_amount = 0.1  # relaxed, like in a calm illustration
         glow = FOX_GLOW.get(self.state)
         if glow:
@@ -1164,22 +1172,84 @@ class Buddy:
             c.oval(paw_x - 12, 289 + oy + dangle, paw_x + 5, 298 + oy + dangle, FOX_LEG)
         self._fox_head(c, now, 0, oy, awake)
 
+    @staticmethod
+    def _knee(hip, foot, upper, lower, bend):
+        """Where the knee goes for a two-part leg from hip to foot (bend = +1 or -1)."""
+        (hx, hy), (fx, fy) = hip, foot
+        dx, dy = fx - hx, fy - hy
+        dist = min(math.hypot(dx, dy), upper + lower - 0.01)
+        cos_a = max(-1.0, min(1.0, (upper ** 2 + dist ** 2 - lower ** 2) / (2 * upper * dist)))
+        angle = math.atan2(dy, dx) + bend * math.acos(cos_a)
+        return hx + upper * math.cos(angle), hy + upper * math.sin(angle)
+
+    def _fox_leg(self, c, hip, foot, bend, far, kicking=False):
+        knee = self._knee(hip, foot, 30, 34, bend)
+        fur = FOX_SHADE if far else FOX_ORANGE
+        sock = "#3d322d" if far else FOX_SOCK
+        c.line(hip[0], hip[1], knee[0], knee[1], fur, 13)
+        c.line(knee[0], knee[1], foot[0], foot[1], sock, 8)
+        c.oval(foot[0] - 9, foot[1] - 3, foot[0] + 3, foot[1] + 4, sock)
+
     def _fox_standing(self, c, now, pose, oy, swish, awake):
-        swing = pose["legs"]
-        self._fox_tail(c, 164, 212 + oy, 38 + swish, 0.85)
-        # four thin legs, trotting (diagonal pairs move together)
-        for top_x, phase in ((100, swing), (112, -swing), (150, -swing), (162, swing)):
-            up = max(0.0, phase) * 7
-            paw_x = top_x - 6 * phase
-            c.line(top_x, 232 + oy, paw_x, 292 + oy - up, FOX_LEG, 6)
-            c.oval(paw_x - 11, 288 + oy - up, paw_x + 4, 297 + oy - up, FOX_LEG)
-        body = (Shape(92, 206 + oy).cubic(110, 196 + oy, 150, 194 + oy, 168, 204 + oy)
-                .cubic(182, 212 + oy, 180, 236 + oy, 164, 240 + oy).cubic(140, 244 + oy, 110, 244 + oy, 96, 238 + oy)
-                .cubic(84, 232 + oy, 82, 214 + oy, 92, 206 + oy).close())
+        """Walking (or standing) on four jointed legs, body level, tail streaming behind."""
+        walking = abs(pose["legs"]) > 0.01
+        kicking = self.activity is not None and now < self.activity.get("kick_until", 0)
+        step = self.step if walking else 0.0
+        bob = -1.6 * abs(math.sin(step * 2)) if walking else 0.0
+        oy += bob
+        ground = 291
+
+        # long tail streaming behind, gently waving
+        wave = 6 * math.sin(self.t * 2.6) + swish * 0.4
+        tail = (Shape(172, 204 + oy).cubic(196, 186 + oy + wave * 0.3, 228, 190 + oy + wave * 0.6, 258, 202 + oy + wave)
+                .cubic(240, 224 + oy + wave * 0.6, 206, 228 + oy + wave * 0.3, 176, 224 + oy).close())
+        c.fill_stroke(tail, FOX_ORANGE)
+        c.polygon([(232, 194 + oy + wave * 0.65), (258, 202 + oy + wave), (240, 219 + oy + wave * 0.7),
+                   (243, 212 + oy + wave * 0.72), (234, 213 + oy + wave * 0.68), (237, 206 + oy + wave * 0.68),
+                   (228, 205 + oy + wave * 0.62)], FOX_CREAM)
+
+        # legs: a four-beat walk (each leg a quarter step after the last)
+        legs = [  # (hip x, hip y, phase offset, knee bend, far side?)
+            (148, 222, math.pi, 1, True),        # far hind leg
+            (76, 224, math.pi * 1.5, -1, True),  # far front leg
+        ]
+        near = [(156, 224, 0.0, 1, False), (66, 226, math.pi / 2, -1, False)]
+        for hip_x, hip_y, offset, bend, far in legs:
+            self._fox_leg(c, (hip_x, hip_y + oy), self._paw(hip_x, offset, step, walking, ground),
+                          bend, far)
+
+        # body: long and level, with a cream throat and a speckled hip
+        body = (Shape(50, 222 + oy).cubic(52, 204 + oy, 64, 196 + oy, 80, 196 + oy)
+                .cubic(110, 193 + oy, 140, 195 + oy, 160, 196 + oy).cubic(180, 196 + oy, 186, 216 + oy, 178, 232 + oy)
+                .cubic(168, 244 + oy, 150, 240 + oy, 140, 236 + oy).cubic(118, 232 + oy, 96, 238 + oy, 74, 240 + oy)
+                .cubic(60, 240 + oy, 50, 234 + oy, 50, 222 + oy).close())
         c.fill_stroke(body, FOX_ORANGE)
-        c.fill_stroke(Shape(86, 200 + oy).cubic(100, 206 + oy, 108, 222 + oy, 104, 240 + oy)
-                      .cubic(94, 238 + oy, 86, 228 + oy, 85, 214 + oy).close(), FOX_CREAM)  # chest
-        self._fox_head(c, now, -12, 62 + oy, awake)
+        c.fill_stroke(Shape(140, 208 + oy).cubic(160, 206 + oy, 172, 220 + oy, 166, 238 + oy)
+                      .cubic(156, 230 + oy, 148, 220 + oy, 140, 208 + oy).close(), FOX_SHADE)  # thigh
+        for vx, vy in ((150, 206), (156, 205), (162, 207), (153, 211), (159, 211), (156, 216)):
+            c.line(vx - 1.5, vy - 1.5 + oy, vx, vy + oy, FOX_CREAM, 1.2)  # little speckles
+            c.line(vx, vy + oy, vx + 1.5, vy - 1.5 + oy, FOX_CREAM, 1.2)
+        neck = Shape(52, 182 + oy).cubic(66, 172 + oy, 84, 184 + oy, 88, 200 + oy).line(54, 228 + oy) \
+            .cubic(44, 214 + oy, 44, 194 + oy, 52, 182 + oy).close()
+        c.fill_stroke(neck, FOX_ORANGE)
+        c.fill_stroke(Shape(47, 189 + oy).cubic(53, 197 + oy, 53, 214 + oy, 55, 228 + oy)
+                      .cubic(47, 222 + oy, 43, 207 + oy, 43, 195 + oy).close(), FOX_CREAM)  # throat
+
+        for hip_x, hip_y, offset, bend, far in near:
+            paw = self._paw(hip_x, offset, step, walking, ground)
+            if kicking and hip_x < 100:
+                paw = (hip_x - 30, ground - 22)  # front paw swings out to kick
+            self._fox_leg(c, (hip_x, hip_y + oy), paw, bend, far)
+
+        self._fox_head(c, now, -46, 44 + oy, awake, relaxed=False, size=0.85)
+
+    @staticmethod
+    def _paw(hip_x, offset, step, walking, ground):
+        if not walking:
+            return hip_x - 2, ground
+        phase = step * 1.0 + offset
+        stride, lift = 15, 10
+        return hip_x - 2 + stride * math.cos(phase), ground - max(0.0, math.sin(phase)) * lift
 
     def _draw_caption(self, c, now):
         if not self.caption or now > self.caption_until:
