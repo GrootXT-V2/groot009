@@ -1,13 +1,18 @@
 """Ears (speech-to-text) and mouth (text-to-speech)."""
 
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import wave
 
-# Deep classic Mac voices used for the "tree voice", in order of preference
-TREE_VOICES = ["Ralph", "Fred", "Bruce"]
-TREE_RATE = 135
+# Groot voice: a male Mac voice, recorded and then played back lower and slower
+# so it sounds deep, warm and tree-like. Voices in order of preference.
+GROOT_VOICES = ["Ralph", "Fred", "Bruce", "Daniel", "Alex", "Tom", "Aaron"]
+GROOT_SAY_RATE = 165  # words per minute before slowing down
+GROOT_PITCH = 0.80  # 0.80 = about 4 semitones deeper and 20% slower
 
 
 def installed_mac_voices() -> set:
@@ -16,6 +21,17 @@ def installed_mac_voices() -> set:
     except Exception:
         return set()
     return {line.split("  ")[0].strip() for line in output.splitlines() if line.strip()}
+
+
+def deepen(src: str, dst: str, factor: float = GROOT_PITCH) -> None:
+    """Make a WAV file deeper and slower by playing it back at a lower sample rate."""
+    with wave.open(src, "rb") as reader:
+        params = reader.getparams()
+        frames = reader.readframes(reader.getnframes())
+    with wave.open(dst, "wb") as writer:
+        writer.setparams(params)
+        writer.setframerate(max(8000, int(params.framerate * factor)))
+        writer.writeframes(frames)
 
 
 def i_am_groot(answer: str) -> str:
@@ -33,10 +49,11 @@ def i_am_groot(answer: str) -> str:
 
 
 class Speaker:
-    def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = False):
+    def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True):
         self.rate = rate
         self.voice = voice
-        self.tree_voice = tree_voice  # deep, slow Groot-like voice (Mac)
+        self.tree_voice = tree_voice  # deep, slow Groot voice (Mac)
+        self._stopped = False
         self._tree_voice_name = None
         self._lock = threading.Lock()
         # On macOS, pyttsx3 often goes silent after a couple of sentences,
@@ -50,16 +67,18 @@ class Speaker:
 
     def say(self, text: str) -> None:
         with self._lock:
+            self._stopped = False
             if self.use_mac_say:
-                voice, rate = self.voice, self.rate
                 if self.tree_voice:
-                    voice, rate = self._tree_voice() or voice, min(rate, TREE_RATE)
-                command = ["say", "-r", str(rate)]
-                if voice:
-                    command += ["-v", voice]
-                self._process = subprocess.Popen(command + [text])
-                self._process.wait()
-                self._process = None
+                    try:
+                        self._say_groot(text)
+                        return
+                    except Exception as exc:
+                        print(f"[Groot voice failed, using normal voice: {exc}]")
+                command = ["say", "-r", str(self.rate)]
+                if self.voice:
+                    command += ["-v", self.voice]
+                self._run(command + [text])
                 return
             # A fresh engine each time avoids pyttsx3 getting stuck after the first reply
             engine = self.pyttsx3.init()
@@ -68,14 +87,34 @@ class Speaker:
             engine.runAndWait()
             engine.stop()
 
-    def _tree_voice(self) -> str:
+    def _say_groot(self, text: str) -> None:
+        voice = self.voice or self._groot_voice()
+        with tempfile.TemporaryDirectory() as folder:
+            raw = os.path.join(folder, "raw.wav")
+            deep = os.path.join(folder, "groot.wav")
+            command = ["say", "-r", str(GROOT_SAY_RATE), "-o", raw, "--data-format=LEI16@22050"]
+            if voice:
+                command += ["-v", voice]
+            self._run(command + [text])
+            if self._stopped:
+                return
+            deepen(raw, deep)
+            self._run(["afplay", deep])
+
+    def _run(self, command: list) -> None:
+        self._process = subprocess.Popen(command)
+        self._process.wait()
+        self._process = None
+
+    def _groot_voice(self) -> str:
         if self._tree_voice_name is None:
             installed = installed_mac_voices()
-            self._tree_voice_name = next((v for v in TREE_VOICES if v in installed), "")
+            self._tree_voice_name = next((v for v in GROOT_VOICES if v in installed), "")
         return self._tree_voice_name
 
     def stop(self) -> None:
         """Cut off whatever is being said right now (Mac only)."""
+        self._stopped = True
         process = self._process
         if process is not None and process.poll() is None:
             process.terminate()

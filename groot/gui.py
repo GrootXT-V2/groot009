@@ -143,7 +143,7 @@ class Bubble:
         self.menu = tk.Menu(root, tearoff=0)
         self.menu.add_command(label="Talk / Stop", command=self.toggle)
         self.menu.add_separator()
-        self.menu.add_checkbutton(label="Tree voice (deep and slow)", variable=self.tree_voice,
+        self.menu.add_checkbutton(label="Groot voice (deep tree voice)", variable=self.tree_voice,
                                   command=self._apply_settings)
         self.menu.add_checkbutton(label='"I am Groot" mode', variable=self.groot_mode,
                                   command=self._apply_settings)

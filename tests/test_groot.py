@@ -148,7 +148,7 @@ def test_mac_speaker_uses_say_every_time(monkeypatch):
             return 0
 
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
-    speaker = voice.Speaker(rate=200, voice="Samantha")
+    speaker = voice.Speaker(rate=200, voice="Samantha", tree_voice=False)
     for text in ["one", "two", "three"]:
         speaker.say(text)
     assert ran == [["say", "-r", "200", "-v", "Samantha", t] for t in ["one", "two", "three"]]
@@ -218,10 +218,24 @@ def test_i_am_groot_matches_mood():
     assert i_am_groot("x" * 120) == "I am Groot. I am Groot."
 
 
-def test_tree_voice_uses_deep_slow_voice(monkeypatch):
+def test_deepen_lowers_sample_rate(tmp_path):
+    import wave
+    from groot.voice import deepen
+
+    src, dst = tmp_path / "a.wav", tmp_path / "b.wav"
+    with wave.open(str(src), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
+        w.writeframes(b"\x00\x01" * 22050)
+    deepen(str(src), str(dst), 0.8)
+    with wave.open(str(dst), "rb") as r:
+        assert r.getframerate() == 17640
+        assert r.getnframes() == 22050  # same sound, played slower and deeper
+
+
+def test_groot_voice_records_deepens_and_plays(monkeypatch):
     import groot.voice as voice
 
-    ran = []
+    ran, deepened = [], []
 
     class FakeProcess:
         def __init__(self, cmd):
@@ -234,11 +248,15 @@ def test_tree_voice_uses_deep_slow_voice(monkeypatch):
     monkeypatch.setattr(voice.shutil, "which", lambda name: "/usr/bin/say")
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
     monkeypatch.setattr(voice, "installed_mac_voices", lambda: {"Samantha", "Fred"})
-    speaker = voice.Speaker(rate=180)
+    monkeypatch.setattr(voice, "deepen", lambda src, dst: deepened.append((src, dst)))
+    speaker = voice.Speaker(rate=180)  # Groot voice is on by default
+    speaker.say("I am Groot")
+    assert ran[0][:3] == ["say", "-r", "165"] and ran[0][-3:] == ["-v", "Fred", "I am Groot"]
+    assert ran[1][0] == "afplay" and ran[1][1] == deepened[0][1]
+
+    speaker.tree_voice = False
     speaker.say("normal")
-    speaker.tree_voice = True
-    speaker.say("deep")
-    assert ran == [["say", "-r", "180", "normal"], ["say", "-r", "135", "-v", "Fred", "deep"]]
+    assert ran[2] == ["say", "-r", "180", "normal"]
 
 
 def test_session_groot_mode_speaks_groot_but_shows_answer():
