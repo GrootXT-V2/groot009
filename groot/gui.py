@@ -290,7 +290,7 @@ def run_gui(config, brain_kind: str) -> None:
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
     signal.signal(signal.SIGINT, signal.SIG_DFL)  # let Ctrl+C in Terminal quit
-    robot = RobotWindow(name=config.name, size=config.robot_size)
+    robot = RobotWindow(name=config.name, size=config.robot_size, style=config.robot_style)
     robot.show()
 
     def load():

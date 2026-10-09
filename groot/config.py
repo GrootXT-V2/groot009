@@ -51,6 +51,7 @@ class Config:
     voice_pitch: float = field(default_factory=lambda: float(os.getenv("GROOT_VOICE_PITCH", "1.25")))
     i_am_groot: bool = field(default_factory=lambda: _bool("GROOT_I_AM_GROOT", False))
     voice_rate: int = field(default_factory=lambda: int(os.getenv("GROOT_VOICE_RATE", "180")))
+    robot_style: str = field(default_factory=lambda: os.getenv("GROOT_ROBOT_STYLE", "tree").lower())
     robot_size: float = field(default_factory=lambda: float(os.getenv("GROOT_ROBOT_SIZE", "0.6")))
     read_notifications: bool = field(default_factory=lambda: _bool("GROOT_READ_NOTIFICATIONS", True))
     slack_token: str = field(default_factory=lambda: os.getenv("SLACK_TOKEN", ""))

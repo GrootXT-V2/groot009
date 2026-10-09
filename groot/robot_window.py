@@ -12,6 +12,21 @@ import time
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QRectF, Qt
 
+# Tree creature colors
+BARK = "#b9693e"
+BARK_LIGHT = "#d9915f"
+BARK_DARK = "#7f4426"
+VINE = "#55b83f"
+VINE_DARK = "#3b8a2c"
+LEAF_COLORS = {  # the leaves change color with Groot's mood
+    "loading": "#8fa07e",
+    "idle": "#63c24a",
+    "listening": "#3ee86f",
+    "thinking": "#f0b232",
+    "speaking": "#63c24a",
+    "error": "#c65a3a",
+}
+
 WHITE = "#f4f6f8"
 SHADE = "#c9d1d9"
 DARK = "#2b2f36"
@@ -35,12 +50,13 @@ class RobotWindow(QtWidgets.QWidget):
     TICK_MS = 33
     GRAVITY = 1.2
 
-    def __init__(self, name="Groot", size=0.6):
+    def __init__(self, name="Groot", size=0.6, style="tree"):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)  # see-through: only the robot shows
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setWindowTitle(name)
         self.scale = size
+        self.style = style  # "tree" (little tree creature) or "robot"
         self.W = int(max(DESIGN_W * size, 190))
         self.H = int(self.CAPTION_H + DESIGN_H * size)
         self.speed = 1.6 * max(size, 0.4)  # walking speed in pixels per frame
@@ -314,7 +330,10 @@ class RobotWindow(QtWidgets.QWidget):
                 p.translate(120, 298)
                 p.rotate(lean)
                 p.translate(-120, -298)
-            self._draw_robot(p, now)
+            if self.style == "robot":
+                self._draw_robot(p, now)
+            else:
+                self._draw_tree(p, now)
             p.restore()
             self._draw_caption(p, now)
         p.end()
@@ -437,6 +456,181 @@ class RobotWindow(QtWidgets.QWidget):
             p.setFont(font)
             p.setPen(QtGui.QColor("#8fa3b5"))
             p.drawText(QtCore.QPointF(cx + 52, 98 + oy - 20 * z), "z")
+
+    # ---- the little tree creature
+
+    @staticmethod
+    def _pt(x, y):
+        return QtCore.QPointF(x, y)
+
+    def _leaf(self, p, x, y, length, width, angle, color):
+        """A leaf growing from (x, y), pointing at `angle` degrees."""
+        p.save()
+        p.translate(x, y)
+        p.rotate(angle)
+        path = QtGui.QPainterPath(self._pt(0, 0))
+        path.quadTo(self._pt(length * 0.45, -width), self._pt(length, 0))
+        path.quadTo(self._pt(length * 0.45, width), self._pt(0, 0))
+        p.setPen(self._pen(VINE_DARK, 1.2))
+        p.setBrush(QtGui.QColor(color))
+        p.drawPath(path)
+        p.setPen(self._pen(QtGui.QColor(color).darker(130).name(), 1))
+        p.drawLine(self._pt(1, 0), self._pt(length * 0.85, 0))
+        p.restore()
+
+    def _vine(self, p, *points, width=3.2):
+        """A curvy vine through the given points (start, then groups of 3 for curves)."""
+        path = QtGui.QPainterPath(self._pt(*points[0]))
+        for i in range(1, len(points) - 2, 3):
+            path.cubicTo(self._pt(*points[i]), self._pt(*points[i + 1]), self._pt(*points[i + 2]))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(self._pen(VINE_DARK, width + 1.6))
+        p.drawPath(path)
+        p.setPen(self._pen(VINE, width))
+        p.drawPath(path)
+
+    def _limb(self, p, x1, y1, x2, y2, width):
+        self._line(p, x1, y1, x2, y2, BARK_DARK, width + 3)
+        self._line(p, x1, y1, x2, y2, BARK, width)
+        self._line(p, x1 - 1, y1, x2 - 1, y2, BARK_LIGHT, max(2, width / 4))
+
+    def _draw_tree(self, p, now):
+        pose = self.pose
+        cx = self.W / 2
+        oy = pose["bob"] - pose["lift"]
+        leaf = LEAF_COLORS.get(self.state, LEAF_COLORS["idle"])
+        turn = self.turn
+        fx = turn * 8  # face slides toward where Groot is walking
+        sway = math.sin(self.t * 2.2)
+
+        # legs: bark limbs with little vine anklets
+        for side, phase in ((-1, pose["legs"]), (1, -pose["legs"])):
+            hip_x = cx + side * 10
+            up = 0 if self.dragging else max(0.0, phase) * 8
+            dangle = 6 if self.dragging else 0
+            foot_x = cx + side * 15 + turn * 6 * phase
+            foot_y = 284 + oy - up + dangle
+            self._limb(p, hip_x, 250 + oy, foot_x, foot_y, 12)
+            self._oval(p, foot_x - 12 + turn * 4, foot_y - 3, foot_x + 12 + turn * 4, foot_y + 9, BARK, BARK_DARK, 2)
+            self._vine(p, (foot_x - 7, foot_y - 12), (foot_x - 2, foot_y - 8), (foot_x + 3, foot_y - 15),
+                       (foot_x + 7, foot_y - 10), width=2.2)
+
+        # body: a little tapered trunk with a vine across it
+        body = QtGui.QPainterPath(self._pt(cx - 9, 196 + oy))
+        body.lineTo(self._pt(cx + 9, 196 + oy))
+        body.cubicTo(self._pt(cx + 14, 215 + oy), self._pt(cx + 20, 240 + oy), self._pt(cx + 16, 256 + oy))
+        body.lineTo(self._pt(cx - 16, 256 + oy))
+        body.cubicTo(self._pt(cx - 20, 240 + oy), self._pt(cx - 14, 215 + oy), self._pt(cx - 9, 196 + oy))
+        grad = QtGui.QLinearGradient(cx - 18, 0, cx + 18, 0)
+        grad.setColorAt(0, QtGui.QColor(BARK))
+        grad.setColorAt(0.4, QtGui.QColor(BARK_LIGHT))
+        grad.setColorAt(1, QtGui.QColor(BARK))
+        p.setPen(self._pen(BARK_DARK, 2))
+        p.setBrush(grad)
+        p.drawPath(body)
+        self._line(p, cx - 4, 222 + oy, cx - 6, 246 + oy, BARK_DARK, 1.2)  # bark grain
+        self._line(p, cx + 6, 214 + oy, cx + 7, 236 + oy, BARK_DARK, 1.2)
+        self._vine(p, (cx - 12, 204 + oy), (cx - 2, 214 + oy), (cx + 4, 226 + oy), (cx + 15, 240 + oy), width=2.6)
+        self._leaf(p, cx + 13, 238 + oy, 12, 5, 20 + 10 * sway, leaf)
+
+        # arms: thin branches with little hands
+        for shoulder_x, angle in ((cx - 12, pose["left_arm"]), (cx + 12, pose["right_arm"])):
+            sy = 208 + oy
+            rad = math.radians(angle)
+            hx, hy = shoulder_x + 40 * math.cos(rad), sy + 40 * math.sin(rad)
+            self._limb(p, shoulder_x, sy, hx, hy, 9)
+            self._oval(p, hx - 6, hy - 6, hx + 6, hy + 6, BARK, BARK_DARK, 1.5)
+            for finger in (-35, 0, 35):  # three twiggy fingers
+                f = rad + math.radians(finger)
+                self._line(p, hx, hy, hx + 9 * math.cos(f), hy + 9 * math.sin(f), BARK_DARK, 3.5)
+
+        # head: a big tree stump with a jagged top
+        tops = [(-60, 118), (-56, 96), (-42, 108), (-31, 88), (-15, 101), (-2, 84), (12, 99),
+                (26, 86), (39, 103), (54, 93), (60, 117)]
+        head = QtGui.QPainterPath(self._pt(cx + tops[0][0], tops[0][1] + oy))
+        for dx, y in tops[1:]:
+            head.lineTo(self._pt(cx + dx, y + oy))
+        head.cubicTo(self._pt(cx + 67, 150 + oy), self._pt(cx + 62, 186 + oy), self._pt(cx + 38, 199 + oy))
+        head.quadTo(self._pt(cx, 211 + oy), self._pt(cx - 38, 199 + oy))
+        head.cubicTo(self._pt(cx - 62, 186 + oy), self._pt(cx - 67, 150 + oy), self._pt(cx - 60, 118 + oy))
+        grad = QtGui.QLinearGradient(0, 84 + oy, 0, 210 + oy)
+        grad.setColorAt(0, QtGui.QColor("#9a7a3e"))  # mossy top
+        grad.setColorAt(0.25, QtGui.QColor(BARK_LIGHT))
+        grad.setColorAt(1, QtGui.QColor(BARK))
+        p.setPen(self._pen(BARK_DARK, 2.2))
+        p.setBrush(grad)
+        p.drawPath(head)
+        for x1, y1, x2, y2 in ((-31, 90, -35, 112), (-2, 86, 2, 108), (26, 88, 22, 110), (-48, 104, -52, 124)):
+            self._line(p, cx + x1, y1 + oy, cx + x2, y2 + oy, BARK_DARK, 1.4)  # bark cracks
+
+        # sprout on top, swaying gently
+        tip_x = cx + 4 + 4 * sway
+        sprout = QtGui.QPainterPath(self._pt(cx - 2, 86 + oy))
+        sprout.quadTo(self._pt(cx - 6, 72 + oy), self._pt(tip_x, 64 + oy))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(self._pen(VINE_DARK, 3))
+        p.drawPath(sprout)
+        self._leaf(p, tip_x, 64 + oy, 14, 6, -150 + 8 * sway, leaf)
+        self._leaf(p, tip_x, 64 + oy, 14, 6, -30 + 8 * sway, leaf)
+
+        # vines across the face
+        self._vine(p, (cx - 60, 132 + oy), (cx - 30, 112 + oy), (cx + 10 + fx, 136 + oy), (cx + 60, 122 + oy))
+        self._vine(p, (cx - 58, 150 + oy), (cx - 48, 170 + oy), (cx - 54, 184 + oy), (cx - 40, 197 + oy), width=2.6)
+        self._leaf(p, cx + 30 + fx, 126 + oy, 11, 5, -60, leaf)
+
+        # eyes: big shiny dark eyes framed by leaves
+        resting = self.state == "idle" and self.action["name"] == "rest" and not self.dragging
+        if now < self.blink_until:
+            open_amount = 0.1
+        elif self.dragging:
+            open_amount = 1.15
+        elif resting:
+            open_amount = 0.72
+        else:
+            open_amount = 1.0
+        look_x, look_y = self.look
+        wiggle = 6 * math.sin(self.t * 9) if self.state == "speaking" else 0
+        for side in (-1, 1):
+            ex, ey = cx + side * 26 + fx, 152 + oy
+            self._leaf(p, ex + side * 4, ey - 6, 40, 17, (205 if side < 0 else -25) + side * wiggle, leaf)
+            if self.state == "listening":  # a soft glow while listening
+                glow = QtGui.QColor(leaf)
+                glow.setAlpha(90)
+                p.setPen(Qt.NoPen)
+                p.setBrush(glow)
+                p.drawEllipse(QRectF(ex - 22, ey - 25, 44, 50))
+            if open_amount < 0.2:
+                self._line(p, ex - 14, ey, ex + 14, ey, "#1b1410", 4)
+                continue
+            rx, ry = 16, 19 * open_amount
+            ox, oy2 = look_x * 0.6, look_y * 0.6
+            self._oval(p, ex - rx + ox, ey - ry + oy2, ex + rx + ox, ey + ry + oy2, "#140f0c", BARK_DARK, 1.5)
+            self._oval(p, ex - 9 + ox, ey - 12 * open_amount + oy2, ex - 2 + ox, ey - 5 * open_amount + oy2, "#ffffff")
+            self._oval(p, ex + 4 + ox, ey + 4 * open_amount + oy2, ex + 7 + ox, ey + 7 * open_amount + oy2, "#d8d8d8")
+
+        # rosy cheeks and mouth
+        blush = QtGui.QColor("#e0785a")
+        blush.setAlpha(110)
+        p.setPen(Qt.NoPen)
+        p.setBrush(blush)
+        for side in (-1, 1):
+            p.drawEllipse(QRectF(cx + side * 40 - 8 + fx, 172 + oy, 16, 8))
+        mx, my = cx + fx * 1.1, 186 + oy
+        if self.state == "speaking":
+            opening = 2 + 7 * sum(self.mouth) / len(self.mouth)
+            self._oval(p, mx - 7, my - opening / 2, mx + 7, my + opening / 2, "#3a1d12", BARK_DARK, 1.2)
+        else:
+            p.setPen(self._pen(BARK_DARK, 2.2))
+            p.setBrush(Qt.NoBrush)
+            p.drawArc(QRectF(mx - 9, my - 7, 18, 10), 200 * 16, 140 * 16)
+
+        if resting:  # sleepy zzz
+            z = (now * 0.8) % 1
+            font = QtGui.QFont("Helvetica", int(10 + 6 * z))
+            font.setBold(True)
+            p.setFont(font)
+            p.setPen(QtGui.QColor("#7f9a6a"))
+            p.drawText(self._pt(cx + 50, 84 + oy - 20 * z), "z")
 
     def _draw_caption(self, p, now):
         if not self.caption or now > self.caption_until:
