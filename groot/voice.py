@@ -26,6 +26,20 @@ def _hz(pitch: str) -> int:
         return 0
 
 
+LAUGHS = re.compile(r"\b(?:he){2,}h?\b|\b(?:ha){2,}h?\b|\b(?:hi){2,}\b|\btee+hee+\b|\blo+l\b|\blmao\b"
+                    r"|\bgiggles?\b|\bteehee\b", re.IGNORECASE)
+ACTIONS = re.compile(r"\*[^*]{1,60}\*|\[[^\]]{1,60}\]")  # *giggles*, [laughs]
+EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]")
+
+
+def clean_for_speech(text: str) -> str:
+    """Remove things a voice can't say naturally: laughs like 'hehe', *actions*, emoji."""
+    text = EMOJI.sub("", LAUGHS.sub("", ACTIONS.sub("", text)))
+    text = re.sub(r"\s+([!?.,])", r"\1", text)  # no space before punctuation left behind
+    text = re.sub(r"(^|[.!?]\s*)[!?.,]+\s*", r"\1", text)  # drop orphaned "!" from removed words
+    return " ".join(text.split()).strip()
+
+
 def _percent(rate: str) -> int:
     try:
         return int(rate.replace("%", ""))
@@ -56,6 +70,9 @@ def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH, base_rat
 
 # Voice styles for the natural voice: (voice, pitch, speed)
 VOICE_STYLES = {
+    # Microsoft's newest, most human-sounding voices, with no pitch tricks
+    "natural": ("en-US-AndrewMultilingualNeural", "+0Hz", "+0%"),
+    "natural-female": ("en-US-AvaMultilingualNeural", "+0Hz", "+0%"),
     "baby": ("en-US-AnaNeural", "+15Hz", "+0%"),  # a real child's voice, a little higher
     "little": ("en-US-AndrewNeural", "+30Hz", "+5%"),  # a young man's voice pitched up
     "normal": ("en-US-AndrewNeural", "+0Hz", "+0%"),
@@ -143,6 +160,9 @@ class Speaker:
             self.pyttsx3 = pyttsx3
 
     def say(self, text: str) -> None:
+        text = clean_for_speech(text)
+        if not text:
+            return
         with self._lock:
             self._stopped = False
             if self._can_use_edge():

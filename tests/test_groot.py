@@ -714,6 +714,8 @@ def test_baby_voice_style(monkeypatch):
     from groot.voice import dramatic_prosody
 
     monkeypatch.delenv("GROOT_VOICE_STYLE", raising=False)
+    assert Config().edge_voice == "en-US-AndrewMultilingualNeural"  # natural voice by default
+    monkeypatch.setenv("GROOT_VOICE_STYLE", "baby")
     monkeypatch.setenv("GROOT_EDGE_VOICE", "en-US-AndrewNeural")  # an old .env setting
     config = Config()
     assert (config.edge_voice, config.edge_pitch, config.edge_rate) == ("en-US-AnaNeural", "+15Hz", "+0%")
@@ -848,3 +850,19 @@ def test_new_conversation_keeps_facts_but_clears_recent(tmp_path):
     Assistant(config, brain, lambda t: None, lambda timeout=None: "").handle("new conversation")
     block = skills.memory.prompt_block()
     assert "Sajib" in block and "hello!" not in block
+
+
+def test_laughs_and_emoji_are_not_spoken():
+    from groot.voice import clean_for_speech
+
+    assert clean_for_speech("Hehe! It's sunny today! Hahaha.") == "It's sunny today!"
+    assert clean_for_speech("Yay *giggles* let's play! 😄⚽") == "Yay let's play!"
+    assert clean_for_speech("Teehee... okay! [laughs] Done.") == "okay! Done."
+    assert clean_for_speech("The capital is Dhaka.") == "The capital is Dhaka."  # normal text untouched
+    assert clean_for_speech("Hehe") == ""
+
+
+def test_prompt_forbids_laugh_sounds():
+    from groot.brain import SYSTEM_PROMPT
+
+    assert "Never write laughs" in SYSTEM_PROMPT and "Hehe!" not in SYSTEM_PROMPT
