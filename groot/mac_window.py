@@ -44,6 +44,25 @@ def _ns_color(color):
 class MacCanvas(Canvas):
     """Drawing on an AppKit view whose coordinates start at the top-left."""
 
+    _sprites = {}
+
+    def sprite(self, path, frame, columns, rows, x, y, w, h, opacity=1.0):
+        if path not in self._sprites:
+            image = AppKit.NSImage.alloc().initWithContentsOfFile_(path)
+            if image is None:
+                return False
+            self._sprites[path] = image
+        image = self._sprites[path]
+        size = image.size()
+        cw, ch = size.width / columns, size.height / rows
+        source = NSMakeRect((frame % columns) * cw,
+                            size.height - (frame // columns + 1) * ch, cw, ch)
+        image.drawInRect_fromRect_operation_fraction_respectFlipped_hints_(
+            NSMakeRect(x, y, w, h), source,
+            getattr(AppKit, "NSCompositingOperationSourceOver", 2), opacity, True,
+            {AppKit.NSImageHintInterpolation: AppKit.NSImageInterpolationHigh})
+        return True
+
     @staticmethod
     def _path(shape):
         path = NSBezierPath.bezierPath()

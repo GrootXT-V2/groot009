@@ -11,6 +11,10 @@ import tempfile
 import threading
 import time
 import wave
+import hashlib
+from pathlib import Path
+from array import array
+from .speech import UncertainTranscription, correct_app_command, transcribe_groq
 
 # Natural voice: Microsoft's free neural voices via the edge-tts package (needs internet).
 # Little Groot = a warm young male voice, pitched up a little.
@@ -70,6 +74,7 @@ def dramatic_prosody(sentence: str, base_pitch: str = EDGE_GROOT_PITCH, base_rat
 
 # Voice styles for the natural voice: (voice, pitch, speed)
 VOICE_STYLES = {
+    "kurama": ("en-US-AndrewNeural", "-28Hz", "-8%"),  # deep voice, measured delivery
     # Microsoft's newest, most human-sounding voices, with no pitch tricks
     "natural": ("en-US-AndrewMultilingualNeural", "+0Hz", "+0%"),
     "natural-female": ("en-US-AvaMultilingualNeural", "+0Hz", "+0%"),
@@ -134,6 +139,11 @@ def i_am_groot(answer: str) -> str:
 
 
 class Speaker:
+    def _voice_for_text(self, text):
+        if re.search(r'[\u0980-\u09ff]', text):
+            return os.getenv('GROOT_BANGLA_VOICE', 'bn-BD-PradeepNeural')
+        return self.edge_voice
+
     def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True,
                  pitch: float = GROOT_PITCH, engine: str = "edge", edge_voice: str = EDGE_VOICE,
                  edge_pitch: str = EDGE_GROOT_PITCH, dramatic: bool = True, edge_rate: str = EDGE_RATE):
@@ -142,7 +152,6 @@ class Speaker:
         self.engine = engine  # "edge" (natural, online) or "mac" (built-in voices)
         self.edge_voice = edge_voice
         self.edge_pitch = edge_pitch
-        self._edge_down_until = 0.0  # skip edge for a while after a failure (e.g. offline)
         self.rate = rate
         self.pitch = pitch
         self.voice = voice
@@ -150,6 +159,11 @@ class Speaker:
         self._stopped = False
         self._tree_voice_name = None
         self._lock = threading.Lock()
+        self._audio_cache = {}
+        self._speech_guard = threading.Lock()
+        self.audio_epoch = 0
+        self.speaking = threading.Event()
+        self.last_speech_end = 0.0
         # On macOS, pyttsx3 often goes silent after a couple of sentences,
         # so use the built-in `say` command there instead.
         self.use_mac_say = sys.platform == "darwin" and shutil.which("say") is not None
@@ -159,21 +173,39 @@ class Speaker:
 
             self.pyttsx3 = pyttsx3
 
-    def say(self, text: str) -> None:
+    def say(self, text: str):
+        with self._speech_guard:
+            return self._tracked_say(text)
+
+    def _tracked_say(self, text: str):
+        self.audio_epoch += 1
+        self.speaking.set()
+        try:
+            return self._say_impl(text)
+        finally:
+            self.last_speech_end = time.monotonic()
+            self.audio_epoch += 1
+            self.speaking.clear()
+
+    def _say_impl(self, text: str):
         text = clean_for_speech(text)
         if not text:
             return
         with self._lock:
             self._stopped = False
-            if self._can_use_edge():
-                try:
-                    self._say_edge(text)
-                    return
-                except Exception as exc:
-                    self._edge_down_until = time.time() + 120
-                    print(f"[natural voice unavailable ({exc}), using Mac voice]")
-                    if self._stopped:
-                        return
+            if self.engine == "edge":
+                # Keep the selected voice even during service failures.
+                # A different synthesizer changes the character's voice entirely.
+                if self._can_use_edge():
+                    for attempt in range(2):
+                        if self._stopped:
+                            return
+                        try:
+                            return self._say_edge(text)
+                        except Exception as exc:
+                            print(f"[selected voice attempt {attempt + 1} failed: {type(exc).__name__}]", flush=True)
+                print("[selected voice unavailable; reply remains on screen]", flush=True)
+                return False
             if self.use_mac_say:
                 if self.tree_voice:
                     try:
@@ -194,7 +226,7 @@ class Speaker:
             engine.stop()
 
     def _can_use_edge(self) -> bool:
-        if self.engine != "edge" or time.time() < self._edge_down_until:
+        if self.engine != "edge":
             return False
         if shutil.which("afplay") is None:  # audio player built into macOS
             return False
@@ -212,9 +244,13 @@ class Speaker:
         """
         import edge_tts
 
+        if not self.dramatic and shutil.which("ffplay"):
+            return self._stream_edge(text)
+
         pitch = self.edge_pitch if self.tree_voice else "+0Hz"
         # dramatic mode speaks sentences separately so each gets its own emotion
-        sentences = split_sentences(text, min_length=14 if self.dramatic else 25) or [text]
+        # Ordinary dialogue needs full context for smooth phrasing and intonation.
+        sentences = (split_sentences(text, min_length=14) or [text]) if self.dramatic else [text]
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             def prepare(i, sentence):
@@ -223,8 +259,25 @@ class Speaker:
                 path = os.path.join(folder, f"{i}.mp3")
                 rate, line_pitch = (dramatic_prosody(sentence, pitch, self.edge_rate) if self.dramatic
                                     else (self.edge_rate, pitch))
-                speech = edge_tts.Communicate(sentence, self.edge_voice, rate=rate, pitch=line_pitch)
-                asyncio.run(speech.save(path))
+                voice = self._voice_for_text(sentence)
+                key = (sentence, voice, rate, line_pitch)
+                cached = self._audio_cache.get(key)
+                if cached is not None:
+                    with open(path, "wb") as output:
+                        output.write(cached)
+                    return path
+                speech = edge_tts.Communicate(sentence, voice, rate=rate, pitch=line_pitch,
+                                              connect_timeout=3, receive_timeout=5)
+                async def save_bounded():
+                    await asyncio.wait_for(speech.save(path), timeout=8)
+                asyncio.run(save_bounded())
+                with open(path, "rb") as source:
+                    audio = source.read()
+                if not audio:
+                    raise RuntimeError("Empty speech audio")
+                if len(self._audio_cache) >= 32:
+                    self._audio_cache.pop(next(iter(self._audio_cache)))
+                self._audio_cache[key] = audio
                 return path
 
             with ThreadPoolExecutor(max_workers=4) as pool:
@@ -241,6 +294,69 @@ class Speaker:
                         break
                     self._run(["afplay", path])
                     played += 1
+
+    def _stream_edge(self, text):
+        """Play the selected voice as it arrives; cache complete audio privately."""
+        import edge_tts
+        pitch = self.edge_pitch if self.tree_voice else "+0Hz"
+        voice = self._voice_for_text(text)
+        key = hashlib.sha256(repr((text, voice, pitch, self.edge_rate)).encode()).hexdigest()
+        folder = Path(tempfile.gettempdir()) / f"kurama-voice-{os.getuid()}"
+        folder.mkdir(mode=0o700, exist_ok=True)
+        path = folder / (key + '.mp3')
+        if path.is_file() and path.stat().st_size:
+            self._run(['afplay', str(path)])
+            return
+        received = bytearray()
+        player = None
+        started = time.monotonic()
+        async def stream():
+            nonlocal player
+            speech = edge_tts.Communicate(text, voice, rate=self.edge_rate,
+                                         pitch=pitch, connect_timeout=5, receive_timeout=12)
+            async for chunk in speech.stream():
+                if self._stopped:
+                    return
+                if chunk['type'] != 'audio':
+                    continue
+                if player is None:
+                    print(f'[voice audio ready in {time.monotonic() - started:.1f}s]', flush=True)
+                    player = subprocess.Popen(
+                        ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'error',
+                         '-probesize', '32', '-analyzeduration', '0', '-f', 'mp3', '-i', 'pipe:0'],
+                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._process = player
+                player.stdin.write(chunk['data'])
+                player.stdin.flush()
+                received.extend(chunk['data'])
+        try:
+            asyncio.run(stream())
+            if player is not None:
+                player.stdin.close()
+                result = player.wait()
+                if result != 0 and not self._stopped:
+                    raise RuntimeError('Audio player failed')
+            if received and not self._stopped:
+                temporary = path.with_suffix('.tmp')
+                temporary.write_bytes(received)
+                temporary.replace(path)
+                # Bound disk usage to the most recent 64 complete replies.
+                files = sorted(folder.glob('*.mp3'), key=lambda p: p.stat().st_mtime, reverse=True)
+                for old in files[64:]:
+                    old.unlink(missing_ok=True)
+            elif not self._stopped:
+                raise RuntimeError('No audio received')
+        except Exception:
+            if player is not None and received:
+                # Do not repeat a reply whose beginning has already played.
+                print('[voice stream interrupted; full reply remains on screen]', flush=True)
+                return False
+            raise
+        finally:
+            if player is not None and player.poll() is None:
+                player.terminate()
+                player.wait()
+            self._process = None
 
     def _say_groot(self, text: str) -> None:
         voice = self.voice or self._groot_voice()
@@ -275,6 +391,20 @@ class Speaker:
             process.terminate()
 
 
+def has_voice_activity(audio, threshold):
+    """Reject silence, low-level room noise and brief clicks before transcription."""
+    samples = array('h', audio.get_raw_data(convert_rate=16000, convert_width=2))
+    if sys.byteorder != 'little':
+        samples.byteswap()
+    active_frames = 0
+    for offset in range(0, len(samples) - 319, 320):
+        frame = samples[offset:offset + 320]
+        rms_squared = sum(value * value for value in frame) / 320
+        if rms_squared > max(80, threshold) ** 2:
+            active_frames += 1
+    return active_frames >= 8  # at least 160 ms, not an isolated click
+
+
 class Listener:
     def __init__(self, engine: str = "google", whisper_model: str = "base"):
         import speech_recognition as sr
@@ -282,32 +412,71 @@ class Listener:
         self.sr = sr
         self.engine = engine
         self.whisper_model = whisper_model
+        self._groq_retry_after = 0.0
         self.recognizer = sr.Recognizer()
-        self.recognizer.dynamic_energy_threshold = True
-        # notice sooner that you've finished talking (default waits 0.8 s of silence)
-        self.recognizer.pause_threshold = 0.5
-        self.recognizer.non_speaking_duration = 0.3
+        self.recognizer.dynamic_energy_threshold = False
+        # Keep quiet syllables after a loud greeting: do not adapt the noise
+        # threshold to speech or trim away the end of the wake phrase.
+        self.recognizer.pause_threshold = 1.2
+        self.recognizer.non_speaking_duration = 1.2
+        self.recognizer.phrase_threshold = 0.15
+        self.recognizer.operation_timeout = 10
         self._mic_lock = threading.Lock()  # only one listener at a time
+        self.on_speech_start = None
+        self.speaker = None
         self.microphone = sr.Microphone()
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
+        print(f"[microphone] ready; energy threshold={self.recognizer.energy_threshold:.0f}", flush=True)
 
     def listen(self, timeout: float = None, phrase_limit: float = 15) -> str:
         """Record one phrase and return it as text ('' if nothing understood)."""
+        speaker = self.speaker
+        epoch = speaker.audio_epoch if speaker else 0
+        if speaker and (speaker.speaking.is_set() or time.monotonic() - speaker.last_speech_end < 0.6):
+            time.sleep(0.1)
+            return ""
         with self._mic_lock, self.microphone as source:
             try:
-                audio = self.recognizer.listen(
-                    source, timeout=timeout, phrase_time_limit=phrase_limit
-                )
+                if self.on_speech_start is None:
+                    audio = self.recognizer.listen(
+                        source, timeout=timeout, phrase_time_limit=phrase_limit
+                    )
+                else:
+                    chunks = self.recognizer.listen(
+                        source, timeout=timeout, phrase_time_limit=phrase_limit, stream=True
+                    )
+                    first = next(chunks)
+                    self.on_speech_start()
+                    frames = first.frame_data + b"".join(chunk.frame_data for chunk in chunks)
+                    audio = self.sr.AudioData(frames, first.sample_rate, first.sample_width)
             except self.sr.WaitTimeoutError:
                 return ""
+        if speaker and (speaker.speaking.is_set() or speaker.audio_epoch != epoch):
+            return ""
+        if not has_voice_activity(audio, self.recognizer.energy_threshold):
+            return ""
         try:
+            if self.engine == "groq" and time.monotonic() >= self._groq_retry_after:
+                try:
+                    return correct_app_command(transcribe_groq(audio))
+                except UncertainTranscription:
+                    # Retry this utterance, without disabling Whisper for the
+                    # next minute as we do for a service outage.
+                    print('[speech unclear; retrying the complete recording]', flush=True)
+                except Exception as exc:
+                    # Reuse this recording; do not ask the user to repeat it.
+                    self._groq_retry_after = time.monotonic() + 60
+                    print(f"[Whisper unavailable: {type(exc).__name__}; using Google temporarily]", flush=True)
             if self.engine == "whisper":
                 # Runs offline on your computer (pip install openai-whisper)
-                return self.recognizer.recognize_whisper(
-                    audio, model=self.whisper_model, language="english"
-                ).strip()
-            return self.recognizer.recognize_google(audio).strip()
+                language = os.getenv('GROOT_STT_LANGUAGE', 'auto')
+                options = {} if language == 'auto' else {'language': language}
+                return correct_app_command(self.recognizer.recognize_whisper(
+                    audio, model=self.whisper_model, **options
+                ).strip())
+            return correct_app_command(self.recognizer.recognize_google(
+                audio, language=os.getenv('GROOT_GOOGLE_LANGUAGE', 'en-US')).strip())
         except self.sr.UnknownValueError:
             return ""
         except self.sr.RequestError as exc:

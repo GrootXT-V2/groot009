@@ -15,6 +15,9 @@ from pathlib import Path
 MAX_FACTS = 200
 RECENT_TURNS = 8  # exchanges carried over after a restart
 
+NAME_FACT = re.compile(r"^(?:the\s+)?user(?:'s|’s)\s+(?:full\s+)?name\s+is\s+(.+?)[.!]?$", re.I)
+NAME_ENTRY = re.compile(r"^(?:the\s+)?user(?:'s|’s)\s+(?:full\s+)?name\b", re.I)
+
 
 class Memory:
     def __init__(self, data_dir):
@@ -45,11 +48,30 @@ class Memory:
         if not fact:
             return "Nothing to remember."
         facts = self.facts
+        if NAME_FACT.fullmatch(fact):
+            # A corrected name replaces both old spellings and pronunciation
+            # notes; retaining those notes keeps teaching the model the typo.
+            facts = [f for f in facts if not NAME_ENTRY.match(f['text'])]
         if any(f["text"].lower() == fact.lower() for f in facts):
             return "I already remember that."
         facts.append({"text": fact, "saved": datetime.now().strftime("%Y-%m-%d")})
         self._save(self.facts_file, facts[-MAX_FACTS:])
         return f"Saved to memory: {fact}"
+
+    def answer_identity(self, text):
+        query = re.sub(r"[?!.,]", "", text.lower()).strip()
+        if query not in {"what is my name", "what's my name", "whats my name",
+                         "tell me my name", "do you remember my name",
+                         "do you know my name", "spell my name", "how do you spell my name"}:
+            return None
+        matches = [NAME_FACT.fullmatch(f['text']) for f in self.facts]
+        names = [m[1] for m in matches if m]
+        if not names:
+            return None
+        name = names[-1]
+        if 'spell' in query:
+            return f"Your name is {name}, spelled " + ' '.join('-'.join(word.upper()) for word in name.split()) + '.'
+        return f"Your name is {name}."
 
     def forget(self, about: str) -> str:
         words = [w for w in re.findall(r"\w+", about.lower()) if len(w) > 2]
@@ -84,7 +106,9 @@ class Memory:
         parts = []
         facts = self.facts
         if facts:
-            parts.append("What you remember about the user (saved from earlier conversations):\n"
+            parts.append("Saved facts take priority over older conversation excerpts. Copy saved names exactly; "
+                         "do not respell them from pronunciation or earlier replies.\n"
+                         "What you remember about the user (saved from earlier conversations):\n"
                          + "\n".join(f"- {f['text']}" for f in facts))
         turns = self._load(self.recent_file)
         if turns:

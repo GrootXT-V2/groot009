@@ -78,14 +78,12 @@ python -m groot --gui
 Or just **double-click `Groot.command`** in Finder. The first time, macOS may
 block it: right-click it → **Open** → **Open**.
 
-A little fox (or a tree creature or robot, with `GROOT_ROBOT_STYLE=tree` / `robot`) appears at
-the bottom of your screen and plays — walking back and
-forth, looking around, waving, jumping and dancing. Pick it up and drop it, and
-it falls back down.
+The red-and-white cartoon fox sleeps curled up in a bottom screen corner,
+with gentle breathing and floating Zs. It stays there until you call it.
 
-- **Say "Hey Groot"** → it stops, looks at you and listens. You can also ask
-  straight away: "Hey Groot, what time is it?"
-- **Say "stop"** (or "you can stop", "that's all", "goodbye") → it goes back to playing.
+- **Say "Hey Fox"** (or "Hay Fox") → Kurama wakes, responds, and strolls while waiting. He sits when speech is detected and while answering. You can also ask
+  straight away: "Hey Fox, what time is it?"
+- **Say "stop"** (or "you can stop", "that's all", "goodbye") → it walks to the opposite corner and sleeps again. Each conversation alternates the resting side.
 - **Ask it to play!** It acts things out on your screen:
   - "Let's play football" ⚽ — a ball appears; Groot chases it and kicks it around the screen
   - "Chase a butterfly" 🦋 — Groot follows a butterfly and jumps to catch it
@@ -93,9 +91,10 @@ it falls back down.
 - **Click it** to start or stop talking. **Drag it** to pick it up and move it.
 - **Right-click** (or Ctrl+click) for the menu: Stay still, Little Groot voice,
   "I am Groot" mode, Quit.
-- It shows its mood: ears perk up and eyes glow green when listening, head tilts when thinking
+- The seated fox stays steady, with no automatic jumping or swaying. It only plays when asked.
+- Dropping a sleeping fox in the middle makes it walk back to the nearest corner. Calling it during a walk stops the walk and wakes it immediately.
 
-While it's playing, Groot listens for "Hey Groot" using the same speech
+While sleeping or walking back, Kurama listens for "Hey Fox" using the same speech
 recognition as the rest of the app (Google's free service by default, or
 offline Whisper with `GROOT_STT=whisper`). Everything it hears is printed in
 Terminal as `[heard] ...`, so you can check it's picking you up.
@@ -220,7 +219,7 @@ questions so it can use them — Groot is told never to save passwords or other 
 | `GROOT_VOICE_PITCH` | `1.25` | Higher = smaller, cuter voice. `1.0` normal, `0.8` big deep Groot |
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
-| `GROOT_ROBOT_STYLE` | `fox` | `fox` (realistic red fox), `flat-fox` (flat illustration), `cute-fox` (round cartoon), `tree` or `robot` |
+| `GROOT_ROBOT_STYLE` | `fox` | `fox` (red-and-white cartoon), `flat-fox` (flat illustration), `cute-fox` (round cartoon), `tree` or `robot` |
 | `GROOT_ROBOT_SIZE` | `0.6` | Desktop robot size (`1.0` = big) |
 | `GROOT_READ_NOTIFICATIONS` | `true` | Read new Mac notifications aloud (needs Full Disk Access) |
 | `SLACK_TOKEN` | — | Slack user token (`xoxp-...`) to let Groot read and send Slack messages |
@@ -253,3 +252,40 @@ tests/          run with: pip install pytest && pytest
 2. Add a matching entry to the `TOOLS` list (name, description, input schema).
 
 The brain (Claude, Groq or Ollama) will automatically decide when to use it.
+
+### Kurama configuration
+
+The example configuration enables Groq Whisper transcription with automatic language detection
+(`GROQ_API_KEY` required), the deep `kurama` voice preset, and Kurama's personality.
+Google transcription is a fallback if Groq is unavailable. App launch commands
+such as “open cloud” are corrected to Claude when Claude is installed.
+
+Repeated calls receive varied greetings and increasingly annoyed replies. A real
+question or 90 seconds resets this behavior. After two minutes without conversation,
+Kurama walks to a corner and sleeps with floating Zs. “You can sleep now” and
+“go to sleep” also end the conversation. “Stop” gets a brief “Okay.”
+
+If the selected online speaking voice fails, the app retries that same voice and
+then keeps the reply on screen; it does not switch to a different voice.
+
+### Direct Gemini and bilingual speech
+
+Copy `.env.example` to `.env`, set `GEMINI_API_KEY` from Google AI Studio,
+and keep `GROOT_BRAIN=gemini` and `GROOT_GEMINI_MODEL=gemini-3.5-flash-lite`.
+The app uses Google’s native API for replies and function calls. This is
+separate from speech recognition: `GROOT_STT=groq` needs `GROQ_API_KEY`.
+API quotas depend on your project and model; free access is not unlimited.
+For OpenRouter, use `GROOT_BRAIN=openrouter` and its separate key/model settings.
+
+Bangla text uses `bn-BD-PradeepNeural`; English keeps the Kurama voice. Whisper
+automatically detects the spoken language. Google fallback uses the single
+locale in `GROOT_GOOGLE_LANGUAGE`. Say “Fox”, “Hey Kurama”, “Hi Foxy”,
+“nine tails”, “ফক্স”, or “হেই কুরামা” to wake the fox.
+
+Audio streams when ffplay is available, with a bounded local reply cache.
+The listener ignores the assistant’s own playback and rejects likely silence.
+Uncertain multi-part transcripts are retried as complete recordings.
+Direct Slack greetings keep the message body separate from the command and
+require confirmation. Name corrections replace conflicting saved name facts.
+
+Keep `.env`, API keys, and personal files in `~/.groot` out of version control.

@@ -7,7 +7,7 @@ import sys
 import urllib.request
 
 from .assistant import Assistant
-from .brain import Brain, GroqBrain, OllamaBrain
+from .brain import Brain, GroqBrain, OllamaBrain, OpenRouterBrain, GeminiBrain
 from .config import Config
 from .skills import Skills
 
@@ -33,7 +33,9 @@ def choose_brain_kind(config: Config) -> str:
     """Work out which brain to use and exit with help if it isn't set up."""
     kind = config.brain
     if kind == "auto":
-        if os.getenv("ANTHROPIC_API_KEY"):
+        if os.getenv("OPENROUTER_API_KEY"):
+            kind = "openrouter"
+        elif os.getenv("ANTHROPIC_API_KEY"):
             kind = "claude"
         elif os.getenv("GROQ_API_KEY"):
             kind = "groq"
@@ -43,12 +45,24 @@ def choose_brain_kind(config: Config) -> str:
         sys.exit("ANTHROPIC_API_KEY is not set. Add it to .env, or set GROOT_BRAIN=ollama to use the free local brain.")
     if kind == "groq" and not os.getenv("GROQ_API_KEY"):
         sys.exit("GROQ_API_KEY is not set. Get a free key at https://console.groq.com/keys and add it to .env.")
+    if kind == "openrouter" and not os.getenv("OPENROUTER_API_KEY"):
+        sys.exit("OPENROUTER_API_KEY is not set. Add it to your local .env.")
+    if kind == "gemini" and not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
+        sys.exit("GEMINI_API_KEY is not set. Add your Google AI Studio key to your local .env.")
     if kind == "ollama":
         check_ollama(config)
     return kind
 
 
 def make_brain(config: Config, kind: str, skills: Skills):
+    if kind == "gemini":
+        print(f"Using Google Gemini ({config.gemini_model})")
+        return GeminiBrain(os.getenv("GEMINI_API_KEY") or os.environ["GOOGLE_API_KEY"],
+                           config.gemini_model, skills, name=config.name, city=config.city)
+    if kind == "openrouter":
+        print(f"Using OpenRouter ({config.openrouter_model})")
+        return OpenRouterBrain(os.environ["OPENROUTER_API_KEY"], config.openrouter_model,
+                               skills, name=config.name, city=config.city)
     if kind == "ollama":
         print(f"Using free local brain: Ollama ({config.ollama_model}). Loading model...")
         brain = OllamaBrain(config.ollama_model, skills, name=config.name, city=config.city,

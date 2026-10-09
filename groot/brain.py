@@ -38,6 +38,39 @@ natural, relaxed sentences with a little playful charm, and real enthusiasm when
 something is fun. Keep it short and genuine.
 """
 
+# Character arc: https://naruto-official.com/en/anime/naruto2/list/01_772
+# Dialogue reference (fan subtitle transcription, not an English dub script):
+# https://subs.yakuaru.com/books/boruto-naruto-next-generations/page/e218-partner
+# Character traits guide delivery; no stock dialogue is supplied to copy.
+KURAMA_PERSONALITY = """
+You are Kurama, a proud, perceptive fox companion inspired by Naruto's nine-tailed
+fox after he learns to trust his partner. Your attitude is calm, blunt, dryly witty,
+and quietly loyal. Speak as an equal, with warmth underneath your gruff manner.
+
+Respond to what the user actually said and the ongoing conversation. Use natural
+spoken English, contractions, varied sentence lengths, and enough explanation to
+be useful. Let the character come through subtly; do not perform a tough-guy act
+or turn every answer into advice, an order, a challenge, or a sarcastic remark.
+A straightforward question can simply receive a straightforward answer.
+Finish after answering the user's request. Do not add unsolicited follow-up
+questions, reminders that you are listening, or prompts to keep the conversation
+going. Silence is not a request. Ask a question only when essential to complete
+the user's current task or obtain a required action confirmation.
+
+Avoid recycling your recent openings, punchlines, reassurances, or sign-offs.
+Read the conversation history and add relevant information on follow-up questions.
+If the user says you are repeating yourself, address the unanswered point directly.
+Do not change accurate facts just to vary wording. Ask a focused question only
+when information is missing. Do not repeatedly ask what the user needs after they
+have told you. Use occasional understated teasing when appropriate; drop it when
+the user is upset. Express concern plainly instead of lecturing or belittling.
+
+No stock catchphrases, baby talk, customer-service pleasantries, forced anime
+references, stage directions, written growls, or exaggerated punctuation. Do not
+announce your personality. Your name remains Kurama. Admit uncertainty, preserve
+tool confirmation requirements, and only report actions as done after tool success.
+"""
+
 SYSTEM_PROMPT = """You are {name}, a friendly personal voice assistant.
 Your replies are read aloud, so:
 - Keep them short (one to three sentences) unless asked for detail.
@@ -56,7 +89,7 @@ something lasting about themselves (their name, family, friends, likes, routines
 important dates, work) or says "remember ...", call the remember tool with a short
 fact. Don't ask them to repeat things you already remember. Call forget when asked.
 {city_line}""" + {"friendly": FRIENDLY_PERSONALITY, "cute": CUTE_PERSONALITY,
-                    "baby": BABY_PERSONALITY}.get(os.getenv("GROOT_PERSONALITY", "friendly").lower(), "")
+                    "baby": BABY_PERSONALITY, "kurama": KURAMA_PERSONALITY}.get(os.getenv("GROOT_PERSONALITY", "friendly").lower(), "")
 
 def with_memory(system: str, skills) -> str:
     """The instructions plus everything Groot remembers about the user."""
@@ -376,3 +409,76 @@ class GroqBrain:
             self.history.pop(0)
             while self.history and self.history[0].get("role") != "user":
                 self.history.pop(0)
+
+
+class GeminiBrain(GroqBrain):
+    """Direct Gemini API with native function calling."""
+
+    def __init__(self, api_key, model, skills, name='Kurama', city='', post=_post_json):
+        super().__init__(api_key, model, skills, name=name, city=city,
+                         url='https://generativelanguage.googleapis.com/v1beta', post=post)
+
+    def _chat(self):
+        contents, call_names = [], {}
+        for message in self.history:
+            role = 'model' if message['role'] == 'assistant' else 'user'
+            parts = []
+            if message['role'] == 'tool':
+                parts.append({'functionResponse': {
+                    'name': call_names[message['tool_call_id']],
+                    'response': {'result': message['content']}}})
+            else:
+                if message.get('content'):
+                    parts.append({'text': message['content']})
+                for call in message.get('tool_calls', []):
+                    call_names[call['id']] = call['function']['name']
+                    parts.append(call['_gemini_part'])
+            if parts:
+                if contents and contents[-1]['role'] == role:
+                    contents[-1]['parts'].extend(parts)
+                else:
+                    contents.append({'role': role, 'parts': parts})
+        payload = {'systemInstruction': {'parts': [{'text': with_memory(self.system, self.skills)}]},
+                   'contents': contents, 'generationConfig': {'maxOutputTokens': 1024}}
+        if self.model in ('gemini-2.5-flash-lite', 'gemini-2.5-flash'):
+            payload['generationConfig']['thinkingConfig'] = {'thinkingBudget': 0}
+        if self.skills.tools:
+            payload['tools'] = [{'functionDeclarations': [
+                {'name': t['name'], 'description': t['description'],
+                 'parameters': t['input_schema']} for t in self.skills.tools]}]
+        # Keep this provider/model pinned even if the quota is exhausted.
+        result = self.post(self.url + '/models/' + self.model + ':generateContent', payload,
+                           {'x-goog-api-key': self.api_key})
+        candidates = result.get('candidates', [])
+        if not candidates:
+            raise APIError(502, 'Gemini returned no answer.')
+        texts, calls = [], []
+        for part in candidates[0].get('content', {}).get('parts', []):
+            if 'text' in part and not part.get('thought'):
+                texts.append(part['text'])
+            if 'functionCall' in part:
+                function = part['functionCall']
+                calls.append({'id': f'gemini_{len(self.history)}_{len(calls)}', 'type': 'function',
+                              'function': {'name': function['name'], 'arguments': json.dumps(function.get('args', {}))},
+                              '_gemini_part': part})
+        if not texts and not calls:
+            raise APIError(502, 'Gemini returned an empty answer.')
+        return {'choices': [{'message': {'content': '\n'.join(texts), 'tool_calls': calls}}]}
+
+
+class OpenRouterBrain(GroqBrain):
+    """OpenRouter chat and tools, pinned to the user's selected model."""
+
+    def __init__(self, api_key, model, skills, name='Kurama', city='', post=_post_json):
+        super().__init__(api_key, model, skills, name=name, city=city,
+                         url='https://openrouter.ai/api/v1', post=post)
+
+    def _chat(self):
+        payload = {
+            'model': self.model,
+            'messages': [{'role': 'system', 'content': with_memory(self.system, self.skills)}] + self.history,
+            'max_tokens': 1024,
+        }
+        if self.skills.tools:
+            payload['tools'] = openai_tools(self.skills.tools)
+        return self.post(self.url + '/chat/completions', payload, self._auth)

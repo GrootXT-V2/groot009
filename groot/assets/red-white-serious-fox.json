@@ -1,0 +1,213 @@
+{
+  "cell": 512,
+  "frames": [
+    {
+      "frame": 0,
+      "source_bounds": [
+        31,
+        65,
+        324,
+        285
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3516874429917909
+    },
+    {
+      "frame": 1,
+      "source_bounds": [
+        344,
+        65,
+        641,
+        285
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3516874429917909
+    },
+    {
+      "frame": 2,
+      "source_bounds": [
+        664,
+        66,
+        963,
+        285
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3578595317725755
+    },
+    {
+      "frame": 3,
+      "source_bounds": [
+        984,
+        66,
+        1274,
+        285
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3578595317725755
+    },
+    {
+      "frame": 4,
+      "source_bounds": [
+        35,
+        371,
+        326,
+        591
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3578595317725755
+    },
+    {
+      "frame": 5,
+      "source_bounds": [
+        345,
+        370,
+        640,
+        591
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3455712102180724
+    },
+    {
+      "frame": 6,
+      "source_bounds": [
+        663,
+        370,
+        956,
+        591
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3455712102180724
+    },
+    {
+      "frame": 7,
+      "source_bounds": [
+        983,
+        370,
+        1270,
+        591
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3455712102180724
+    },
+    {
+      "frame": 8,
+      "source_bounds": [
+        31,
+        655,
+        316,
+        879
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3275501672240804
+    },
+    {
+      "frame": 9,
+      "source_bounds": [
+        348,
+        655,
+        631,
+        879
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3275501672240804
+    },
+    {
+      "frame": 10,
+      "source_bounds": [
+        663,
+        655,
+        951,
+        879
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3275501672240804
+    },
+    {
+      "frame": 11,
+      "source_bounds": [
+        987,
+        655,
+        1269,
+        879
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3275501672240804
+    },
+    {
+      "frame": 12,
+      "source_bounds": [
+        43,
+        932,
+        311,
+        1161
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3395100786405136
+    },
+    {
+      "frame": 13,
+      "source_bounds": [
+        367,
+        928,
+        627,
+        1161
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3158019356557258
+    },
+    {
+      "frame": 14,
+      "source_bounds": [
+        679,
+        929,
+        941,
+        1161
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.32164994425864
+    },
+    {
+      "frame": 15,
+      "source_bounds": [
+        999,
+        930,
+        1258,
+        1160
+      ],
+      "nose_anchor": 70,
+      "paw_line": 456,
+      "ear_top": 158.628762541806,
+      "scale": 1.3275501672240804
+    }
+  ]
+}

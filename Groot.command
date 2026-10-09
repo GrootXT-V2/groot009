@@ -25,4 +25,4 @@ if ! cmp -s requirements.txt .venv/installed-requirements.txt; then
   .venv/bin/pip install -q -r requirements.txt && cp requirements.txt .venv/installed-requirements.txt
 fi
 [ -f .env ] || cp .env.example .env
-.venv/bin/python -m groot --gui
+.venv/bin/python -u -m groot --gui

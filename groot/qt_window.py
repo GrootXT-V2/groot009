@@ -12,6 +12,24 @@ TEXT_FLAGS = Qt.TextWordWrap | Qt.AlignCenter
 
 
 class QtCanvas(Canvas):
+    _sprites = {}
+
+    def sprite(self, path, frame, columns, rows, x, y, w, h, opacity=1.0):
+        if path not in self._sprites:
+            pixmap = QtGui.QPixmap(path)
+            if pixmap.isNull():
+                return False
+            self._sprites[path] = pixmap
+        pixmap = self._sprites[path]
+        cw, ch = pixmap.width() / columns, pixmap.height() / rows
+        self.p.save()
+        self.p.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+        self.p.setOpacity(opacity)
+        self.p.drawPixmap(QRectF(x, y, w, h), pixmap,
+                          QRectF((frame % columns) * cw, (frame // columns) * ch, cw, ch))
+        self.p.restore()
+        return True
+
     def __init__(self, painter: QtGui.QPainter):
         self.p = painter
 

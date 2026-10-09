@@ -9,6 +9,7 @@ import math
 import queue
 import random
 import time
+from pathlib import Path
 from collections import namedtuple
 
 # The part of the screen the buddy may use, in top-left-origin screen coordinates
@@ -58,6 +59,9 @@ RF_WHITE = "#f4eee5"     # throat, chest, belly, tail tip
 RF_GREY = "#b9aca0"      # greyish underside of the tail
 RF_BLACK = "#231a16"     # leg "stockings", ear backs, nose
 RF_EYE = "#d99a2b"       # amber eyes
+
+# The atlas is packed into padded cells with identical nose, ear and paw anchors.
+FOX_SPRITE_GROUNDS = (456 / 512,) * 16
 
 # Robot colors
 WHITE = "#f4f6f8"
@@ -145,6 +149,10 @@ class Canvas:
 
     def rrect(self, x1, y1, x2, y2, r, fill, outline=None, width=0):
         self.fill_stroke(rounded_rect_shape(x1, y1, x2, y2, r), fill, outline, width)
+
+    def sprite(self, path, frame, columns, rows, x, y, w, h, opacity=1.0):
+        """Draw one atlas cell. Return False when raster drawing is unavailable."""
+        return False
 
     def oval(self, x1, y1, x2, y2, fill=None, outline=None, width=0):
         self.fill_stroke(oval_shape(x1, y1, x2, y2), fill, outline, width)
@@ -302,6 +310,8 @@ class Buddy:
         self.session = None
         self.watcher = None  # reads new notifications aloud (Mac)
         self.state = "loading"
+        self.emotion = "calm"
+        self.emotion_until = 0.0
         self.caption = "Getting ready..."
         self.caption_until = float("inf")
         self.events = queue.Queue()
@@ -329,10 +339,16 @@ class Buddy:
         self.activity = None  # something you asked Groot to do, like playing football
         self.face_right = False  # side-view characters remember which way they face
         self.props = []  # toys on screen (each gets its own little window)
+        self._fox_mode = "sleep"
+        self._fox_corner = "right"
+        self._fox_destination = None
+        self._fox_departure = 0.0
 
         self.set_area(area)
         self.x = float(area.right - self.W - 30)
         self.y = self.floor
+        if self.style == "fox":
+            self.x = self._fox_corner_x("right")
 
     def set_area(self, area: Area) -> None:
         self.area = area
@@ -355,6 +371,10 @@ class Buddy:
     def perform(self, activity: str) -> None:
         """Start an on-screen activity (football, butterfly, dance, ...) or 'stop'."""
         self.events.put(("perform", activity))
+
+    def end_conversation(self) -> None:
+        """Called by the voice thread only when a conversation ends."""
+        self.events.put(("conversation_end", None))
 
     # ---- mouse (positions in top-left-origin screen coordinates)
 
@@ -437,6 +457,76 @@ class Buddy:
         self.x = min(max(self.x, a.left), a.right - self.W)
         self.y = min(max(self.y, a.top), self.floor)
 
+    def set_emotion(self, emotion, seconds=8):
+        if emotion in ("calm", "curious", "focused", "happy", "concerned", "annoyed"):
+            self.events.put(("emotion", (emotion, seconds)))
+
+    def _fox_emotion(self, now):
+        if self.state in ("idle", "loading"):
+            return "calm"
+        if now < self.emotion_until:
+            return self.emotion
+        return {"listening": "curious", "thinking": "focused",
+                "error": "concerned"}.get(self.state, "calm")
+
+    def _fox_corner_x(self, side):
+        left = float(self.area.left)
+        right = max(left, float(self.area.right - self.W))
+        margin = min(16.0, (right - left) / 2)
+        return left + margin if side == "left" else right - margin
+
+    def _nearest_fox_corner(self):
+        return min(("left", "right"), key=lambda side: abs(self.x - self._fox_corner_x(side)))
+
+    def _return_fox_to_corner(self, side):
+        self.activity = None
+        self.props = []
+        self._fox_mode = "return"
+        self._fox_destination = side
+        self._fox_departure = self.t
+
+    def _update_fox_behaviour(self, now, pose, awake):
+        if awake:
+            self._fox_mode = "awake"
+            self._fox_destination = None
+            self._stand_until = 0.0
+        if self.activity is not None:
+            if self._sleeping() and not awake:
+                self._return_fox_to_corner(self._nearest_fox_corner())
+            else:
+                return self._do_activity(now, pose, awake)
+        if self._fox_mode == "awake":
+            if self.state == "waiting" and not self.stay_still:
+                side = getattr(self, "_fox_roam_side", None)
+                if side is None or abs(self.x - self._fox_corner_x(side)) < 2:
+                    side = "left" if self._nearest_fox_corner() == "right" else "right"
+                    self._fox_roam_side = side
+                self._walk_toward(self._fox_corner_x(side), 0.8, pose)
+                pose["bob"] = pose["lean"] = 0.0
+                return pose
+            # Sit still while hearing, thinking, or answering.
+            self.look = (0, 0)
+            return pose
+        if self._fox_mode == "sleep":
+            if abs(self.x - self._fox_corner_x(self._fox_corner)) <= 1:
+                self.x = self._fox_corner_x(self._fox_corner)
+                return pose
+            # After a drag or screen resize, walk to the nearest safe corner.
+            self._return_fox_to_corner(self._nearest_fox_corner())
+        side = self._fox_destination
+        target = self._fox_corner_x(side)
+        if abs(target - self.x) < 1:
+            self.x = target
+            self._fox_corner = side
+            self._fox_destination = None
+            self._fox_mode = "sleep"
+            self._stand_until = 0.0
+            self.face_right = side == "left"
+            return pose
+        self._walk_toward(target, 2.0, pose, self.t - self._fox_departure)
+        pose["bob"] = pose["lean"] = 0.0
+        return pose
+
     def _update_behaviour(self, now):
         """Move the character and return its pose for this frame."""
         pose = {"bob": 0.0, "legs": 0.0, "left_arm": 112.0, "right_arm": 68.0, "lift": 0.0, "lean": 0.0}
@@ -459,6 +549,9 @@ class Buddy:
         if self.fall_speed > 0:  # just landed
             self.fall_speed = 0.0
             self._new_action("rest")
+
+        if self.style == "fox":
+            return self._update_fox_behaviour(now, pose, awake)
 
         if self.activity is not None:
             return self._do_activity(now, pose, awake)
@@ -488,7 +581,7 @@ class Buddy:
                     speed = self.speed * min(1.0, elapsed / 0.5)
                     self.x += direction * speed
                     self._place()
-                    self.step += speed * 0.12 / max(self.scale, 0.4)
+                    self.step += speed * (2 * math.pi * 0.62 / 30 if self.style == "fox" else 0.12) / max(self.scale, 0.4)
                     facing = direction
                     swing = math.sin(self.step)
                     pose["legs"] = swing
@@ -523,6 +616,11 @@ class Buddy:
             kind, value = self.events.get()
             if kind == "state":
                 self.state = value
+                if value == "idle":
+                    self.emotion_until = 0.0
+            elif kind == "emotion":
+                self.emotion, seconds = value
+                self.emotion_until = time.monotonic() + seconds
             elif kind == "text":
                 text, seconds = value
                 self.caption = text
@@ -535,13 +633,26 @@ class Buddy:
                 self.session = value
                 self.little_voice = value.speaker.tree_voice
                 self.groot_mode = value.groot_mode
+            elif kind == "conversation_end" and self.style == "fox":
+                side = "left" if self._nearest_fox_corner() == "right" else "right"
+                self._return_fox_to_corner(side)
 
         now = time.monotonic() if now is None else now
         self.t += self.FRAME
         if now > self.next_blink:
             self.blink_until = now + 0.15
             self.next_blink = now + random.uniform(2.5, 6)
+        previous_x = self.x
         self.pose = self._update_behaviour(now)
+        if self.style == "fox":
+            moving = abs(self.x - previous_x) > 0.0001
+            self.pose["walking"] = moving
+            if moving:
+                self.face_right = self.x > previous_x
+                self.pose["lean"] = 0.0
+                self.pose["bob"] = 0.0
+            elif self.activity is None:
+                self.pose["bob"] = self.pose["lean"] = self.pose["lift"] = 0.0
         if self.state == "speaking":
             self.mouth = [max(0.15, min(1.0, m + random.uniform(-0.35, 0.35))) for m in self.mouth]
 
@@ -551,11 +662,19 @@ class Buddy:
 
     def _start_activity(self, name):
         self._end_activity(wave=False)
+        if self.style == "fox" and name == "stop":
+            self._return_fox_to_corner(self._nearest_fox_corner())
+            return
         if name not in ACTIVITIES:
             return
         now = time.monotonic()
         self.activity = {"name": name, "start": now, "until": now + ACTIVITIES[name], "kick_until": 0.0,
                          "kick_dir": 1, "jump_start": -10.0, "target": None, "retarget": 0.0}
+        if self.style == "fox":
+            self._fox_mode = "awake"
+            self._fox_destination = None
+        if name == "sleep":
+            self.activity["settled"] = self.state == "idle"
         center = self.x + self.W / 2
         toward_middle = 1 if center < (self.area.left + self.area.right) / 2 else -1
         if name == "football":
@@ -567,7 +686,7 @@ class Buddy:
     def _end_activity(self, wave=True):
         self.activity = None
         self.props = []
-        if wave:
+        if wave and self.style != "fox":
             self._new_action("wave")
 
     def _do_activity(self, now, pose, awake):
@@ -575,7 +694,11 @@ class Buddy:
         name = a["name"]
         elapsed = now - a["start"]
         facing = 0.0
-        if now > a["until"] or (name == "sleep" and awake):
+        if name == "sleep" and not a.get("settled", True) and not awake:
+            # Finish acknowledging the sleep command before starting the nap.
+            a.update(settled=True, start=now, until=now + ACTIVITIES["sleep"])
+            elapsed = 0.0
+        if now > a["until"] or (name == "sleep" and awake and a.get("settled", True)):
             self._end_activity(wave=name != "sleep")
             return pose
 
@@ -615,7 +738,7 @@ class Buddy:
         speed = min(abs(dx), self.speed * speed_factor * min(1.0, elapsed / 0.4))
         self.x += direction * speed
         self._place()
-        self.step += speed * 0.12 / max(self.scale, 0.4)
+        self.step += speed * (2 * math.pi * 0.62 / 30 if self.style == "fox" else 0.12) / max(self.scale, 0.4)
         swing = math.sin(self.step)
         pose["legs"] = swing
         pose["bob"] = -2.5 * abs(swing)
@@ -709,6 +832,8 @@ class Buddy:
                     self.CAPTION_H - DESIGN_TOP * self.scale)
         c.scale(self.scale)
         lean = self.pose.get("lean", 0.0)
+        if self.style == "fox" and self._fox_curled_up(now):
+            lean = 0.0  # sleeping body rests flat on the floor
         if lean:  # tilt the whole body around its feet
             c.translate(CX, 298)
             c.rotate(lean)
@@ -716,7 +841,8 @@ class Buddy:
         if self.style == "robot":
             self._draw_robot(c, now)
         elif self.style == "fox":
-            self._draw_fox(c, now, realistic=True)
+            if not self._draw_fox_sprite(c, now):
+                self._draw_fox(c, now, realistic=True)
         elif self.style == "flat-fox":
             self._draw_fox(c, now, realistic=False)
         elif self.style == "cute-fox":
@@ -725,6 +851,86 @@ class Buddy:
             self._draw_tree(c, now)
         c.restore()
         self._draw_caption(c, now)
+
+    def _fox_sprite_frame(self, now):
+        """Choose registered poses using travelled distance for the gait."""
+        if self.pose.get("walking", False):
+            self._stand_until = now + 0.8
+            return int((self.step % math.tau) / math.tau * 8) % 8
+        if self.dragging:
+            return 8
+        # One seated drawing prevents the body shifting between speech poses.
+        return 12
+
+    def _draw_fox_sprite(self, c, now):
+        if self._fox_curled_up(now) and self._draw_sleeping_fox(c):
+            self._draw_sleep_marks(c)
+            return True
+        path = Path(__file__).with_name("assets") / "red-white-serious-fox.png"
+        if not path.is_file():
+            return False
+        frame = self._fox_sprite_frame(now)
+        c.save()
+        if self.face_right:
+            c.translate(2 * CX, 0)
+            c.scale_xy(-1, 1)
+        # Register each pose's actual paw baseline to the desktop floor.
+        size = 300
+        ground = 298 - self.pose.get("lift", 0)
+        # Every frame has its own transparent gutter and the same registration.
+        # Do not clip to generated grid cells: that used to cut through tail tips.
+        drawn = c.sprite(str(path), frame, 4, 4, CX - size / 2,
+                         ground - size * FOX_SPRITE_GROUNDS[frame], size, size)
+        c.restore()
+        if drawn:
+            self._draw_fox_emotion(c, now)
+        return drawn
+
+    def _draw_fox_emotion(self, c, now):
+        mood = self._fox_emotion(now)
+        # Small expressive marks; keep the registered body completely still.
+        marks = {"curious": ("?", "#e4b955"), "focused": ("...", "#8fb0d6"),
+                 "happy": ("♥", "#df7979"), "concerned": ("!", "#82b9d2"),
+                 "annoyed": ("!", "#d84a39")}
+        if mood not in marks:
+            return
+        mark, color = marks[mood]
+        x = 170 if self.face_right else 57
+        c.text(x, 99 + 1.5 * math.sin(self.t * 2), mark, 21, color, bold=True)
+
+    def _fox_curled_up(self, now):
+        """Sleep only on the floor in the selected corner, until called."""
+        if (self.dragging or self.pose.get("walking", False)
+                or self.state not in ("idle", "loading") or self.y < self.floor - 0.5):
+            return False
+        return (self._fox_mode == "sleep"
+                and abs(self.x - self._fox_corner_x(self._fox_corner)) <= 1)
+
+    def _draw_sleep_marks(self, c):
+        # Draw after mirroring the fox so letters remain readable on either side.
+        for i in range(3):
+            phase = (self.t / 3 + i / 3) % 1
+            c.text(CX + 18 + phase * 22, 170 - phase * 42, "Z",
+                   12 + phase * 6, ("#523e50", 0.9 - 0.5 * phase), bold=True)
+
+    def _draw_sleeping_fox(self, c):
+        path = Path(__file__).with_name("assets") / "red-white-fox-sleeping.png"
+        if not path.is_file():
+            return False
+        width, height = 250, 250 * 0.7142857142857143
+        ground = 298
+        c.save()
+        if self.face_right:
+            c.translate(2 * CX, 0)
+            c.scale_xy(-1, 1)
+        # Breathe about fifteen times a minute, anchored to the floor.
+        c.translate(CX, ground)
+        c.scale_xy(1, 1 + 0.015 * math.sin(self.t * math.tau / 4))
+        c.translate(-CX, -ground)
+        drawn = c.sprite(str(path), 0, 1, 1, CX - width / 2,
+                         ground - height * 0.8641509433962264, width, height)
+        c.restore()
+        return drawn
 
     def _eye_open_amount(self, now, sleepy):
         if self._sleeping():
@@ -1137,9 +1343,9 @@ class Buddy:
         pose = self.pose
         oy = pose["bob"] - pose["lift"]
         awake = self.state in ("listening", "thinking", "speaking")
-        if abs(self.turn) > 0.5:
+        if not pose.get("walking", False) and abs(self.turn) > 0.5:
             self.face_right = self.turn > 0
-        if abs(pose["legs"]) > 0.01:
+        if pose.get("walking", abs(pose["legs"]) > 0.01):
             self._stand_until = now + 0.6  # keep standing a moment so it doesn't flicker
         standing = now < getattr(self, "_stand_until", 0.0)
 
@@ -1275,6 +1481,39 @@ class Buddy:
             pts.append((x, bottom_y + (depth if i % 2 else 0)))
         return pts
 
+    @staticmethod
+    def _rf_paw(hip_x, offset, step, walking, ground):
+        """Plant the paw during stance, then lift and return it during swing.
+
+        Stance speed matches the distance-based phase in the movement loop,
+        keeping planted feet fixed on the desktop instead of skating.
+        """
+        if not walking:
+            return hip_x - 2, ground
+        phase = ((step + offset) / (2 * math.pi)) % 1
+        if phase < 0.62:
+            return hip_x - 17 + 30 * phase / 0.62, ground
+        swing = (phase - 0.62) / 0.38
+        ease = swing * swing * (3 - 2 * swing)
+        return hip_x + 13 - 30 * ease, ground - 12 * math.sin(math.pi * swing) ** 2
+
+    @staticmethod
+    def _rf_fur(c, shape, bounds, downward=False):
+        """Stable fine guard hairs, clipped to the silhouette; no frame noise."""
+        left, top, right, bottom = bounds
+        c.save()
+        c.clip(shape)
+        for row in range(int((bottom - top) / 5) + 1):
+            for col in range(int((right - left) / 6) + 1):
+                seed = (row * 37 + col * 19) % 23
+                x = left + col * 6 + (seed % 5) * 0.6
+                y = top + row * 5 + (seed % 3) * 0.7
+                length = 2.5 + (seed % 4) * 0.6
+                color = (RF_LIGHT if seed % 3 else RF_BACK, 0.28)
+                c.line(x, y, x + (length * 0.35 if downward else length),
+                       y + (length if downward else length * 0.4), color, 0.55)
+        c.restore()
+
     def _rf_tufts(self, c, points, color, length=5, width=1.4):
         """Little fur tufts sticking out along an edge, pointing down/back."""
         for x, y in points:
@@ -1298,7 +1537,8 @@ class Buddy:
         for base, tip, front in (((80, 152), (90, 112), False), ((64, 154), (70, 110), True)):
             c.save()
             c.translate(base[0] + 8, base[1])
-            c.rotate(perk)
+            twitch = 3 * max(0, math.sin(self.t * 0.7 + (0 if front else 2))) ** 12
+            c.rotate(perk + twitch + (1.5 * math.sin(self.t * 1.1 + 1) if not front else 0))
             c.translate(-base[0] - 8, -base[1])
             outer = [(base[0] - 6, base[1] + 2), tip, (base[0] + 20, base[1] - 2)]
             c.polygon(outer, RF_BLACK if not front else RF_SIDE)
@@ -1313,6 +1553,7 @@ class Buddy:
                 .cubic(42, 184, 50, 186, 56, 188).line(62, 194).line(66, 188).line(72, 196).line(76, 190)
                 .line(82, 196).cubic(92, 188, 96, 176, 94, 162).close())
         c.gradient(head, (0, 142), (0, 196), [(0, RF_BACK), (0.35, RF_SIDE), (1, RF_LIGHT)])
+        self._rf_fur(c, head, (30, 146, 94, 190))
         # white cheeks and lower jaw, with a fluffy edge
         cheek = [(20, 179), (34, 178), (48, 175), (60, 174), (70, 178), (78, 186), (82, 196), (76, 190),
                  (72, 196), (66, 188), (62, 194), (56, 188), (44, 185), (30, 183)]
@@ -1357,10 +1598,13 @@ class Buddy:
             c.gradient(outer, (0, 0), (0, 33), [(0, RF_BACK), (0.5, RF_SIDE), (1, RF_GREY)])
             c.polygon(tip, RF_WHITE)
         else:  # streaming out behind (standing / walking)
-            outer = (Shape(0, 0).cubic(24, -14, 52, -10, 82, 2).cubic(70, 22, 40, 28, 4, 22).close())
+            wave = 3 * math.sin(self.t * 1.8 - 0.7)
+            outer = (Shape(0, 0).cubic(24, -14, 52, -10 + wave * 0.5, 82, 2 + wave).cubic(70, 22 + wave, 40, 28 + wave * 0.5, 4, 22).close())
             tip = [(82, 2), (66, -6), (60, -3), (64, 2), (58, 4), (63, 9), (57, 12), (64, 15), (72, 16)]
             c.gradient(outer, (0, -14), (0, 28), [(0, RF_BACK), (0.45, RF_SIDE), (1, RF_GREY)])
+            tip = [(x, y + wave * max(0, (x - 40) / 42)) for x, y in tip]
             c.polygon(tip, RF_WHITE)
+            self._rf_fur(c, outer, (6, -10, 78, 25))
             self._rf_tufts(c, [(14, 22), (26, 24), (38, 25), (50, 23)], RF_GREY, 4, 1.6)
         c.restore()
 
@@ -1375,15 +1619,14 @@ class Buddy:
         c.oval(foot[0] - 7, foot[1] - 2.5, foot[0] + 3, foot[1] + 3, black)
 
     def _real_fox_standing(self, c, now, pose, oy, swish, awake):
-        walking = abs(pose["legs"]) > 0.01
+        walking = pose.get("walking", abs(pose["legs"]) > 0.01)
         kicking = self.activity is not None and now < self.activity.get("kick_until", 0)
         step = self.step if walking else 0.0
-        oy += -1.4 * abs(math.sin(step * 2)) if walking else 0.0
         ground = 291
 
         self._rf_tail(c, 176, 204 + oy, -8 + 0.6 * swish + 4 * math.sin(self.t * 2.6))
         for hip_x, hip_y, offset, bend, hind in ((148, 220, math.pi, 1, True), (78, 222, math.pi * 1.5, -1, False)):
-            self._rf_leg(c, (hip_x, hip_y + oy), self._paw(hip_x, offset, step, walking, ground), bend, True, hind)
+            self._rf_leg(c, (hip_x, hip_y + oy), self._rf_paw(hip_x, offset, step, walking, ground), bend, True, hind)
 
         # body: slightly arched back, deep chest, tucked belly
         body = (Shape(54, 214 + oy).cubic(52, 200 + oy, 60, 192 + oy, 74, 190 + oy)
@@ -1391,6 +1634,7 @@ class Buddy:
                 .cubic(186, 222 + oy, 178, 236 + oy, 166, 238 + oy).cubic(150, 240 + oy, 140, 232 + oy, 128, 230 + oy)
                 .cubic(110, 228 + oy, 92, 236 + oy, 78, 238 + oy).cubic(62, 238 + oy, 54, 228 + oy, 54, 214 + oy).close())
         c.gradient(body, (0, 186 + oy), (0, 240 + oy), [(0, RF_BACK), (0.4, RF_SIDE), (1, RF_LIGHT)])
+        self._rf_fur(c, body, (54, 190 + oy, 182, 240 + oy))
         self._rf_tufts(c, [(76, 236 + oy), (88, 235 + oy), (100, 233 + oy), (112, 231 + oy)],
                        ("#f4eee5", 0.85), 4, 1.6)  # pale fluffy belly
         neck = (Shape(52, 186 + oy).cubic(64, 176 + oy, 82, 182 + oy, 88, 196 + oy).line(56, 224 + oy)
@@ -1401,12 +1645,12 @@ class Buddy:
         self._rf_tufts(c, [(150, 236 + oy), (160, 237 + oy), (170, 233 + oy)], RF_SIDE, 5, 2)  # fluffy thigh
 
         for hip_x, hip_y, offset, bend, hind in ((156, 222, 0.0, 1, True), (66, 224, math.pi / 2, -1, False)):
-            paw = self._paw(hip_x, offset, step, walking, ground)
+            paw = self._rf_paw(hip_x, offset, step, walking, ground)
             if kicking and not hind:
                 paw = (hip_x - 30, ground - 22)  # front paw swings out to kick
             self._rf_leg(c, (hip_x, hip_y + oy), paw, bend, False, hind)
 
-        self._rf_head(c, now, 0, oy, awake, relaxed=False)
+        self._rf_head(c, now, 0, oy + (0.7 * math.sin(step - 0.4) if walking else 0), awake, relaxed=False)
 
     def _real_fox_sitting(self, c, now, pose, oy, swish, awake):
         # haunch and back, sitting upright
@@ -1416,6 +1660,7 @@ class Buddy:
         c.gradient(body, (100, 0), (170, 0), [(0, RF_LIGHT), (0.45, RF_SIDE), (1, RF_BACK)])
         c.fill_stroke(Shape(146, 232 + oy).cubic(162, 248 + oy, 164, 276 + oy, 148, 292 + oy)
                       .cubic(156, 270 + oy, 154, 250 + oy, 146, 232 + oy).close(), RF_BACK)  # haunch shading
+        self._rf_fur(c, body, (98, 154 + oy, 168, 296 + oy), downward=True)
         # white chest with a fluffy fringe
         chest = [(84, 150 + oy), (98, 158 + oy), (110, 176 + oy), (116, 200 + oy), (116, 222 + oy), (110, 236 + oy),
                  (106, 230 + oy), (104, 240 + oy), (100, 230 + oy), (96, 236 + oy), (95, 222 + oy), (91, 226 + oy),
