@@ -210,8 +210,51 @@ def prepare_qt() -> None:
              + REINSTALL_QT)
 
 
+USE_OLDER_PYTHON = (
+    "Fix: run Groot with Python 3.12, which PySide6 fully supports:\n"
+    "  brew install python@3.12\n"
+    "  rm -rf .venv\n"
+    "  python3.12 -m venv .venv\n"
+    "  source .venv/bin/activate\n"
+    "  pip install -r requirements.txt\n"
+    "  python -m groot --gui\n"
+    "(Or just double-click Groot.command, which does this for you.)"
+)
+
+QT_PROBLEM_WORDS = ("cannot load", "library not loaded", "reason", "image not found",
+                    "incompatible", "symbol not found", "error", "could not")
+
+
+def check_qt_starts() -> None:
+    """Try starting Qt in a separate process first.
+
+    If Qt can't start, it kills Python with a macOS crash dialog. Testing it
+    in a throwaway process lets us show the real reason and a fix instead.
+    """
+    import os
+    import subprocess
+
+    env = dict(os.environ, QT_DEBUG_PLUGINS="1")
+    probe = "from PySide6.QtWidgets import QApplication; app = QApplication([]); print('qt-ok')"
+    try:
+        result = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True,
+                                text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return  # slow but alive: carry on
+    if result.returncode == 0 and "qt-ok" in result.stdout:
+        return
+    lines = [line.strip() for line in (result.stderr or "").splitlines()]
+    reasons = [line for line in lines if any(word in line.lower() for word in QT_PROBLEM_WORDS)]
+    details = "\n".join(f"  {line[:300]}" for line in reasons[-6:]) or "  (no details)"
+    version = ".".join(map(str, sys.version_info[:3]))
+    sys.exit(f"The robot window (Qt) can't start with Python {version}.\nWhat Qt said:\n{details}\n\n"
+             + USE_OLDER_PYTHON)
+
+
 def run_gui(config, brain_kind: str) -> None:
     prepare_qt()
+    if sys.platform == "darwin":
+        check_qt_starts()
     from PySide6 import QtWidgets
     import signal
 

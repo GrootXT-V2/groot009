@@ -492,3 +492,20 @@ def test_media_control_only_known_apps(tmp_path):
     assert skills.run("media_control", {"action": "next", "app": "spotify"}) == "Next on Spotify."
     assert calls[-1][0] == 'tell application "Spotify" to next track'
     assert skills.run("media_control", {"action": "play", "app": 'x" to do shell script "rm'}) == "I can control Music or Spotify."
+
+
+def test_qt_check_explains_instead_of_crashing(monkeypatch):
+    import pytest
+    import groot.gui as gui
+
+    failed = SimpleNamespace(returncode=134, stdout="", stderr=(
+        "qt.core.plugin.factoryloader: checking directory path ...\n"
+        'Cannot load library libqcocoa.dylib: (Library not loaded: @rpath/QtGui.framework)\n'))
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: failed)
+    with pytest.raises(SystemExit) as stop:
+        gui.check_qt_starts()
+    message = str(stop.value)
+    assert "Library not loaded" in message and "python3.12 -m venv .venv" in message
+
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="qt-ok\n", stderr=""))
+    gui.check_qt_starts()  # works: no exit
