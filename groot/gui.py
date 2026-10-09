@@ -143,7 +143,7 @@ class Bubble:
         self.menu = tk.Menu(root, tearoff=0)
         self.menu.add_command(label="Talk / Stop", command=self.toggle)
         self.menu.add_separator()
-        self.menu.add_checkbutton(label="Groot voice (deep tree voice)", variable=self.tree_voice,
+        self.menu.add_checkbutton(label="Little Groot voice", variable=self.tree_voice,
                                   command=self._apply_settings)
         self.menu.add_checkbutton(label='"I am Groot" mode', variable=self.groot_mode,
                                   command=self._apply_settings)
@@ -286,7 +286,8 @@ def run_gui(config, brain_kind: str) -> None:
         # Microphone calibration and loading the brain take a few seconds,
         # so do it in the background while the bubble shows "Getting ready..."
         try:
-            speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice)
+            speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice,
+                              pitch=config.voice_pitch)
 
             def announce(text):  # used by timers
                 bubble.set_text(f"{config.name}: {text}")

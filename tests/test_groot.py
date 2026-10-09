@@ -248,10 +248,11 @@ def test_groot_voice_records_deepens_and_plays(monkeypatch):
     monkeypatch.setattr(voice.shutil, "which", lambda name: "/usr/bin/say")
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
     monkeypatch.setattr(voice, "installed_mac_voices", lambda: {"Samantha", "Fred"})
-    monkeypatch.setattr(voice, "deepen", lambda src, dst: deepened.append((src, dst)))
-    speaker = voice.Speaker(rate=180)  # Groot voice is on by default
+    monkeypatch.setattr(voice, "deepen", lambda src, dst, factor: deepened.append((src, dst, factor)))
+    speaker = voice.Speaker(rate=180)  # little Groot voice is on by default
     speaker.say("I am Groot")
-    assert ran[0][:3] == ["say", "-r", "165"] and ran[0][-3:] == ["-v", "Fred", "I am Groot"]
+    assert ran[0][:3] == ["say", "-r", "140"] and ran[0][-3:] == ["-v", "Fred", "I am Groot"]
+    assert deepened[0][2] == 1.25  # higher, little Groot
     assert ran[1][0] == "afplay" and ran[1][1] == deepened[0][1]
 
     speaker.tree_voice = False

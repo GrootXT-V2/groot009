@@ -8,11 +8,11 @@ import tempfile
 import threading
 import wave
 
-# Groot voice: a male Mac voice, recorded and then played back lower and slower
-# so it sounds deep, warm and tree-like. Voices in order of preference.
-GROOT_VOICES = ["Ralph", "Fred", "Bruce", "Daniel", "Alex", "Tom", "Aaron"]
-GROOT_SAY_RATE = 165  # words per minute before slowing down
-GROOT_PITCH = 0.80  # 0.80 = about 4 semitones deeper and 20% slower
+# Little Groot voice: a male Mac voice, recorded slowly and then played back
+# higher and faster, so it sounds small and cute. Voices in order of preference.
+GROOT_VOICES = ["Daniel", "Fred", "Alex", "Tom", "Aaron", "Ralph", "Bruce"]
+GROOT_SAY_RATE = 140  # recorded slowly, so after speeding up it's a normal pace
+GROOT_PITCH = 1.25  # >1 = higher (1.25 is about 4 semitones), <1 = deeper
 
 
 def installed_mac_voices() -> set:
@@ -24,7 +24,10 @@ def installed_mac_voices() -> set:
 
 
 def deepen(src: str, dst: str, factor: float = GROOT_PITCH) -> None:
-    """Make a WAV file deeper and slower by playing it back at a lower sample rate."""
+    """Change a WAV file's pitch by changing its playback sample rate.
+
+    factor > 1 makes it higher and faster; factor < 1 makes it deeper and slower.
+    """
     with wave.open(src, "rb") as reader:
         params = reader.getparams()
         frames = reader.readframes(reader.getnframes())
@@ -49,8 +52,10 @@ def i_am_groot(answer: str) -> str:
 
 
 class Speaker:
-    def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True):
+    def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True,
+                 pitch: float = GROOT_PITCH):
         self.rate = rate
+        self.pitch = pitch
         self.voice = voice
         self.tree_voice = tree_voice  # deep, slow Groot voice (Mac)
         self._stopped = False
@@ -98,7 +103,7 @@ class Speaker:
             self._run(command + [text])
             if self._stopped:
                 return
-            deepen(raw, deep)
+            deepen(raw, deep, self.pitch)
             self._run(["afplay", deep])
 
     def _run(self, command: list) -> None:

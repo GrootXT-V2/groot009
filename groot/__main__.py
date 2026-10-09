@@ -91,7 +91,8 @@ def main() -> None:
     else:
         from .voice import Speaker, i_am_groot
 
-        speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice)
+        speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice,
+                              pitch=config.voice_pitch)
 
         def speak(text):
             print(f"{config.name}: {text}")
