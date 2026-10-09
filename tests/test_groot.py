@@ -207,3 +207,54 @@ def test_session_stops_when_clicked_again():
     session.toggle()  # second click
     assert not session.active
     assert states[-1] == "idle"
+
+
+def test_i_am_groot_matches_mood():
+    from groot.voice import i_am_groot
+
+    assert i_am_groot("Do you want to hear a joke?") == "I am Groot?"
+    assert i_am_groot("That's great news!") == "I am Groot!"
+    assert i_am_groot("It is 3 PM.") == "I am Groot."
+    assert i_am_groot("x" * 120) == "I am Groot. I am Groot."
+
+
+def test_tree_voice_uses_deep_slow_voice(monkeypatch):
+    import groot.voice as voice
+
+    ran = []
+
+    class FakeProcess:
+        def __init__(self, cmd):
+            ran.append(cmd)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(voice.sys, "platform", "darwin")
+    monkeypatch.setattr(voice.shutil, "which", lambda name: "/usr/bin/say")
+    monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(voice, "installed_mac_voices", lambda: {"Samantha", "Fred"})
+    speaker = voice.Speaker(rate=180)
+    speaker.say("normal")
+    speaker.tree_voice = True
+    speaker.say("deep")
+    assert ran == [["say", "-r", "180", "normal"], ["say", "-r", "135", "-v", "Fred", "deep"]]
+
+
+def test_session_groot_mode_speaks_groot_but_shows_answer():
+    import time
+    from groot.gui import Session
+
+    spoken, shown = [], []
+    heard = iter(["what time is it", "stop"])
+    speaker = SimpleNamespace(say=spoken.append, stop=lambda: None)
+    brain = SimpleNamespace(reply=lambda text: "It is 3 PM.")
+    session = Session(brain, speaker, lambda timeout=None: next(heard, ""), lambda s: None, shown.append,
+                      groot_mode=True)
+    session.start()
+    for _ in range(100):
+        if not session.active:
+            break
+        time.sleep(0.01)
+    assert spoken == ["I am Groot!", "I am Groot.", "I am Groot."]
+    assert "Groot: It is 3 PM." in shown

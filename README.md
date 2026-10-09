@@ -84,6 +84,10 @@ A little Groot bubble appears in the corner of your screen, on top of other wind
 - **Say "stop"** (or "that's all", "goodbye") or **click it again** → Groot stops, even mid-sentence.
 - **Drag it** to move it. **Right-click** (or Ctrl+click) → Quit.
 - Colors: ⚪ sleeping · 🟢 listening · 🟡 thinking · 🔵 talking
+- Right-click menu extras:
+  - **Tree voice** — a deep, slow Groot-like voice
+  - **"I am Groot" mode** — Groot only says "I am Groot" (excited, curious or
+    long-winded to match the answer), and the real answer appears as text
 
 If it says it needs Tkinter: `brew install python-tk`, then delete the `.venv`
 folder and set it up again.
@@ -104,6 +108,8 @@ folder and set it up again.
 | `GROOT_STT` | `google` | `google` (free, online) or `whisper` (offline; `pip install openai-whisper`) |
 | `GROOT_WHISPER_MODEL` | `base` | Whisper size: `tiny`, `base`, `small`, `medium` |
 | `GROOT_VOICE_RATE` | `180` | Speaking speed |
+| `GROOT_TREE_VOICE` | `false` | Deep, slow Groot-like voice (Mac) |
+| `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |
 | `GROOT_VOICE` | — | Mac voice, e.g. `Samantha` or `Daniel` (list: `say -v '?'`) |
 | `GROOT_CITY` | — | Home city for weather |
 

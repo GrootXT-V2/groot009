@@ -44,6 +44,8 @@ class Config:
     stt_engine: str = field(default_factory=lambda: os.getenv("GROOT_STT", "google"))
     whisper_model: str = field(default_factory=lambda: os.getenv("GROOT_WHISPER_MODEL", "base"))
     voice: str = field(default_factory=lambda: os.getenv("GROOT_VOICE", ""))
+    tree_voice: bool = field(default_factory=lambda: _bool("GROOT_TREE_VOICE", False))
+    i_am_groot: bool = field(default_factory=lambda: _bool("GROOT_I_AM_GROOT", False))
     voice_rate: int = field(default_factory=lambda: int(os.getenv("GROOT_VOICE_RATE", "180")))
     city: str = field(default_factory=lambda: os.getenv("GROOT_CITY", ""))
     data_dir: Path = field(

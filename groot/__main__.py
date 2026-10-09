@@ -89,13 +89,13 @@ def main() -> None:
         def speak(text):
             print(f"{config.name}: {text}")
     else:
-        from .voice import Speaker
+        from .voice import Speaker, i_am_groot
 
-        speaker = Speaker(rate=config.voice_rate, voice=config.voice)
+        speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice)
 
         def speak(text):
             print(f"{config.name}: {text}")
-            speaker.say(text)
+            speaker.say(i_am_groot(text) if config.i_am_groot else text)
 
     if args.text:
         def listen(timeout=None):

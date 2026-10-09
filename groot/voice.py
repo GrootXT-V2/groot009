@@ -5,11 +5,39 @@ import subprocess
 import sys
 import threading
 
+# Deep classic Mac voices used for the "tree voice", in order of preference
+TREE_VOICES = ["Ralph", "Fred", "Bruce"]
+TREE_RATE = 135
+
+
+def installed_mac_voices() -> set:
+    try:
+        output = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return set()
+    return {line.split("  ")[0].strip() for line in output.splitlines() if line.strip()}
+
+
+def i_am_groot(answer: str) -> str:
+    """What Groot says out loud in "I am Groot" mode, matching the answer's mood."""
+    text = answer.strip()
+    if text.endswith("?"):
+        return "I am Groot?"
+    if "!" in text or "haha" in text.lower():
+        return "I am Groot!"
+    if len(text) > 200:
+        return "I am Groot. I am Groot... I am Groot."
+    if len(text) > 80:
+        return "I am Groot. I am Groot."
+    return "I am Groot."
+
 
 class Speaker:
-    def __init__(self, rate: int = 180, voice: str = ""):
+    def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = False):
         self.rate = rate
         self.voice = voice
+        self.tree_voice = tree_voice  # deep, slow Groot-like voice (Mac)
+        self._tree_voice_name = None
         self._lock = threading.Lock()
         # On macOS, pyttsx3 often goes silent after a couple of sentences,
         # so use the built-in `say` command there instead.
@@ -23,9 +51,12 @@ class Speaker:
     def say(self, text: str) -> None:
         with self._lock:
             if self.use_mac_say:
-                command = ["say", "-r", str(self.rate)]
-                if self.voice:
-                    command += ["-v", self.voice]
+                voice, rate = self.voice, self.rate
+                if self.tree_voice:
+                    voice, rate = self._tree_voice() or voice, min(rate, TREE_RATE)
+                command = ["say", "-r", str(rate)]
+                if voice:
+                    command += ["-v", voice]
                 self._process = subprocess.Popen(command + [text])
                 self._process.wait()
                 self._process = None
@@ -36,6 +67,12 @@ class Speaker:
             engine.say(text)
             engine.runAndWait()
             engine.stop()
+
+    def _tree_voice(self) -> str:
+        if self._tree_voice_name is None:
+            installed = installed_mac_voices()
+            self._tree_voice_name = next((v for v in TREE_VOICES if v in installed), "")
+        return self._tree_voice_name
 
     def stop(self) -> None:
         """Cut off whatever is being said right now (Mac only)."""

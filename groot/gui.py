@@ -9,6 +9,8 @@ import re
 import sys
 import threading
 
+from .voice import i_am_groot
+
 STOP_PHRASES = {
     "stop", "stop it", "stop listening", "stop talking", "that's all", "thats all",
     "that is all", "goodbye", "bye", "bye bye", "go to sleep", "sleep", "exit", "quit",
@@ -28,7 +30,8 @@ class Session:
     Runs in a background thread so the bubble stays responsive.
     """
 
-    def __init__(self, brain, speaker, listen, on_state, on_text, name="Groot"):
+    def __init__(self, brain, speaker, listen, on_state, on_text, name="Groot", groot_mode=False):
+        self.groot_mode = groot_mode  # only say "I am Groot" out loud; show the real answer
         self.brain = brain
         self.speaker = speaker
         self.listen = listen
@@ -67,7 +70,7 @@ class Session:
             return
         self.on_state("speaking")
         self.on_text(f"{self.name}: {text}")
-        self.speaker.say(text)
+        self.speaker.say(i_am_groot(text) if self.groot_mode else text)
 
     def _run(self, running) -> None:
         try:
@@ -135,8 +138,15 @@ class Bubble:
                                 highlightthickness=0, bd=0)
         self.canvas.pack()
 
+        self.tree_voice = tk.BooleanVar(value=False)
+        self.groot_mode = tk.BooleanVar(value=False)
         self.menu = tk.Menu(root, tearoff=0)
         self.menu.add_command(label="Talk / Stop", command=self.toggle)
+        self.menu.add_separator()
+        self.menu.add_checkbutton(label="Tree voice (deep and slow)", variable=self.tree_voice,
+                                  command=self._apply_settings)
+        self.menu.add_checkbutton(label='"I am Groot" mode', variable=self.groot_mode,
+                                  command=self._apply_settings)
         self.menu.add_separator()
         self.menu.add_command(label=f"Quit {name}", command=self.quit)
 
@@ -196,6 +206,11 @@ class Bubble:
     def _show_menu(self, event):
         self.menu.tk_popup(event.x_root, event.y_root)
 
+    def _apply_settings(self):
+        if self.session is not None:
+            self.session.groot_mode = self.groot_mode.get()
+            self.session.speaker.tree_voice = self.tree_voice.get()
+
     def toggle(self):
         if self.session is not None:
             self.session.toggle()
@@ -216,6 +231,8 @@ class Bubble:
                 self.caption = value
             elif kind == "session":
                 self.session = value
+                self.tree_voice.set(value.speaker.tree_voice)
+                self.groot_mode.set(value.groot_mode)
         self.phase += 0.15
         self._draw()
         self.root.after(50, self._tick)
@@ -269,7 +286,7 @@ def run_gui(config, brain_kind: str) -> None:
         # Microphone calibration and loading the brain take a few seconds,
         # so do it in the background while the bubble shows "Getting ready..."
         try:
-            speaker = Speaker(rate=config.voice_rate, voice=config.voice)
+            speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice)
 
             def announce(text):  # used by timers
                 bubble.set_text(f"{config.name}: {text}")
@@ -280,7 +297,8 @@ def run_gui(config, brain_kind: str) -> None:
             bubble.set_text("Checking microphone...")
             ears = Listener(engine=config.stt_engine, whisper_model=config.whisper_model)
             session = Session(brain, speaker, lambda timeout=None: ears.listen(timeout=timeout),
-                              bubble.set_state, bubble.set_text, name=config.name)
+                              bubble.set_state, bubble.set_text, name=config.name,
+                              groot_mode=config.i_am_groot)
             bubble.set_session(session)
             bubble.set_state("idle")
             bubble.set_text("Click me to talk")
