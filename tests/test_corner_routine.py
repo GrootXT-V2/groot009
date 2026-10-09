@@ -73,7 +73,7 @@ class CornerRoutineTests(unittest.TestCase):
         self.tick(5)
         self.assertFalse(self.session.active)
         self.assertLess(self.buddy.x, start)
-        self.assertEqual(self.canvas().texts, [])
+        self.assertNotIn("Z", self.canvas().texts)
         self.arrive()
         self.assertEqual(self.buddy.x, self.buddy._fox_corner_x("left"))
         self.assertEqual(self.canvas().texts, ["Z", "Z", "Z"])
@@ -98,7 +98,7 @@ class CornerRoutineTests(unittest.TestCase):
             canvas = self.canvas()
             rectangles.append(canvas.frames)
             self.assertEqual(canvas.scales, [])
-            self.assertEqual(canvas.texts, [])
+            self.assertNotIn("Z", canvas.texts)  # awake emotion marks are allowed
         self.assertEqual(rectangles[0], rectangles[1])
         self.assertEqual(rectangles[1], rectangles[2])
 
@@ -119,7 +119,7 @@ class CornerRoutineTests(unittest.TestCase):
         self.assertEqual(self.buddy.x, position)
         self.assertEqual(self.buddy._fox_mode, "awake")
         self.assertIsNone(self.buddy._fox_destination)
-        self.assertEqual(self.canvas().texts, [])
+        self.assertNotIn("Z", self.canvas().texts)
 
     def test_drop_in_middle_walks_to_corner_before_sleeping(self):
         b = self.buddy

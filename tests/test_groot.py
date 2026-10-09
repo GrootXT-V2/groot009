@@ -308,7 +308,7 @@ def _fake_edge(monkeypatch, voice, fail=False):
     made = []
 
     class Communicate:
-        def __init__(self, text, voice_name, rate, pitch):
+        def __init__(self, text, voice_name, rate, pitch, **kwargs):
             made.append((text, voice_name, pitch))
             self.text = text
 

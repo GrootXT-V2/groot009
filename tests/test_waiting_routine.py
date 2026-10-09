@@ -51,13 +51,13 @@ class WaitingTests(unittest.TestCase):
         for phrase in ("don't go to sleep", "you cannot sleep now", "why do foxes sleep", "don't stop"):
             self.assertFalse(is_stop_command(phrase, 'Kurama'), phrase)
 
-    def test_speech_refreshes_timeout(self):
+    def test_unconfirmed_noise_does_not_refresh_timeout(self):
         s = Session(SimpleNamespace(), SimpleNamespace(say=lambda text: None, stop=lambda: None),
                     lambda timeout=None: '', lambda state: None, lambda text: None)
         with patch('groot.gui.time.monotonic', return_value=10): s.start()
         s._greet = False
         with patch('groot.gui.time.monotonic', return_value=129): s.speech_started()
         with patch('groot.gui.time.monotonic', return_value=130): s._conversation_turn()
-        self.assertTrue(s.active)
+        self.assertFalse(s.active)
 
 if __name__ == '__main__': unittest.main()

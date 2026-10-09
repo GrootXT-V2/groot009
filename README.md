@@ -82,7 +82,7 @@ The red-and-white cartoon fox sleeps curled up in a bottom screen corner,
 with gentle breathing and floating Zs. It stays there until you call it.
 
 - **Say "Hey Fox"** (or "Hay Fox") → Kurama wakes, responds, and strolls while waiting. He sits when speech is detected and while answering. You can also ask
-  straight away: "Hey Groot, what time is it?"
+  straight away: "Hey Fox, what time is it?"
 - **Say "stop"** (or "you can stop", "that's all", "goodbye") → it walks to the opposite corner and sleeps again. Each conversation alternates the resting side.
 - **Ask it to play!** It acts things out on your screen:
   - "Let's play football" ⚽ — a ball appears; Groot chases it and kicks it around the screen
@@ -231,7 +231,7 @@ The brain (Claude, Groq or Ollama) will automatically decide when to use it.
 
 ### Kurama configuration
 
-The example configuration enables Groq Whisper transcription with app-name hints
+The example configuration enables Groq Whisper transcription with automatic language detection
 (`GROQ_API_KEY` required), the deep `kurama` voice preset, and Kurama's personality.
 Google transcription is a fallback if Groq is unavailable. App launch commands
 such as “open cloud” are corrected to Claude when Claude is installed.
@@ -243,3 +243,25 @@ Kurama walks to a corner and sleeps with floating Zs. “You can sleep now” an
 
 If the selected online speaking voice fails, the app retries that same voice and
 then keeps the reply on screen; it does not switch to a different voice.
+
+### Direct Gemini and bilingual speech
+
+Copy `.env.example` to `.env`, set `GEMINI_API_KEY` from Google AI Studio,
+and keep `GROOT_BRAIN=gemini` and `GROOT_GEMINI_MODEL=gemini-3.5-flash-lite`.
+The app uses Google’s native API for replies and function calls. This is
+separate from speech recognition: `GROOT_STT=groq` needs `GROQ_API_KEY`.
+API quotas depend on your project and model; free access is not unlimited.
+For OpenRouter, use `GROOT_BRAIN=openrouter` and its separate key/model settings.
+
+Bangla text uses `bn-BD-PradeepNeural`; English keeps the Kurama voice. Whisper
+automatically detects the spoken language. Google fallback uses the single
+locale in `GROOT_GOOGLE_LANGUAGE`. Say “Fox”, “Hey Kurama”, “Hi Foxy”,
+“nine tails”, “ফক্স”, or “হেই কুরামা” to wake the fox.
+
+Audio streams when ffplay is available, with a bounded local reply cache.
+The listener ignores the assistant’s own playback and rejects likely silence.
+Uncertain multi-part transcripts are retried as complete recordings.
+Direct Slack greetings keep the message body separate from the command and
+require confirmation. Name corrections replace conflicting saved name facts.
+
+Keep `.env`, API keys, and personal files in `~/.groot` out of version control.

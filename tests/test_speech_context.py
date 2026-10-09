@@ -18,14 +18,14 @@ class SpeechTests(unittest.TestCase):
         with patch('groot.speech.Path.is_dir', return_value=False):
             self.assertEqual(correct_app_command('open cloud'), 'open cloud')
 
-    def test_audio_and_spelling_context_sent(self):
+    def test_audio_sent_without_hallucination_prone_prompt(self):
         audio = SimpleNamespace(get_wav_data=lambda **kwargs: b'RIFF-test-audio')
         with patch.dict(os.environ, {'GROQ_API_KEY': 'test-key'}), patch('groot.speech.urllib.request.urlopen', return_value=io.BytesIO(b'{"text":"Open Claude."}')) as send:
             self.assertEqual(transcribe_groq(audio), 'Open Claude.')
         request = send.call_args.args[0]
         self.assertIn(b'RIFF-test-audio', request.data)
-        self.assertIn(b'Claude', request.data)
-        self.assertIn(b'whisper-large-v3-turbo', request.data)
+        self.assertNotIn(b'name="prompt"', request.data)
+        self.assertIn(b'whisper-large-v3', request.data)
         self.assertEqual(send.call_args.kwargs['timeout'], 15)
 
 if __name__ == '__main__': unittest.main()

@@ -52,6 +52,10 @@ spoken English, contractions, varied sentence lengths, and enough explanation to
 be useful. Let the character come through subtly; do not perform a tough-guy act
 or turn every answer into advice, an order, a challenge, or a sarcastic remark.
 A straightforward question can simply receive a straightforward answer.
+Finish after answering the user's request. Do not add unsolicited follow-up
+questions, reminders that you are listening, or prompts to keep the conversation
+going. Silence is not a request. Ask a question only when essential to complete
+the user's current task or obtain a required action confirmation.
 
 Avoid recycling your recent openings, punchlines, reassurances, or sign-offs.
 Read the conversation history and add relevant information on follow-up questions.
@@ -405,3 +409,76 @@ class GroqBrain:
             self.history.pop(0)
             while self.history and self.history[0].get("role") != "user":
                 self.history.pop(0)
+
+
+class GeminiBrain(GroqBrain):
+    """Direct Gemini API with native function calling."""
+
+    def __init__(self, api_key, model, skills, name='Kurama', city='', post=_post_json):
+        super().__init__(api_key, model, skills, name=name, city=city,
+                         url='https://generativelanguage.googleapis.com/v1beta', post=post)
+
+    def _chat(self):
+        contents, call_names = [], {}
+        for message in self.history:
+            role = 'model' if message['role'] == 'assistant' else 'user'
+            parts = []
+            if message['role'] == 'tool':
+                parts.append({'functionResponse': {
+                    'name': call_names[message['tool_call_id']],
+                    'response': {'result': message['content']}}})
+            else:
+                if message.get('content'):
+                    parts.append({'text': message['content']})
+                for call in message.get('tool_calls', []):
+                    call_names[call['id']] = call['function']['name']
+                    parts.append(call['_gemini_part'])
+            if parts:
+                if contents and contents[-1]['role'] == role:
+                    contents[-1]['parts'].extend(parts)
+                else:
+                    contents.append({'role': role, 'parts': parts})
+        payload = {'systemInstruction': {'parts': [{'text': with_memory(self.system, self.skills)}]},
+                   'contents': contents, 'generationConfig': {'maxOutputTokens': 1024}}
+        if self.model in ('gemini-2.5-flash-lite', 'gemini-2.5-flash'):
+            payload['generationConfig']['thinkingConfig'] = {'thinkingBudget': 0}
+        if self.skills.tools:
+            payload['tools'] = [{'functionDeclarations': [
+                {'name': t['name'], 'description': t['description'],
+                 'parameters': t['input_schema']} for t in self.skills.tools]}]
+        # Keep this provider/model pinned even if the quota is exhausted.
+        result = self.post(self.url + '/models/' + self.model + ':generateContent', payload,
+                           {'x-goog-api-key': self.api_key})
+        candidates = result.get('candidates', [])
+        if not candidates:
+            raise APIError(502, 'Gemini returned no answer.')
+        texts, calls = [], []
+        for part in candidates[0].get('content', {}).get('parts', []):
+            if 'text' in part and not part.get('thought'):
+                texts.append(part['text'])
+            if 'functionCall' in part:
+                function = part['functionCall']
+                calls.append({'id': f'gemini_{len(self.history)}_{len(calls)}', 'type': 'function',
+                              'function': {'name': function['name'], 'arguments': json.dumps(function.get('args', {}))},
+                              '_gemini_part': part})
+        if not texts and not calls:
+            raise APIError(502, 'Gemini returned an empty answer.')
+        return {'choices': [{'message': {'content': '\n'.join(texts), 'tool_calls': calls}}]}
+
+
+class OpenRouterBrain(GroqBrain):
+    """OpenRouter chat and tools, pinned to the user's selected model."""
+
+    def __init__(self, api_key, model, skills, name='Kurama', city='', post=_post_json):
+        super().__init__(api_key, model, skills, name=name, city=city,
+                         url='https://openrouter.ai/api/v1', post=post)
+
+    def _chat(self):
+        payload = {
+            'model': self.model,
+            'messages': [{'role': 'system', 'content': with_memory(self.system, self.skills)}] + self.history,
+            'max_tokens': 1024,
+        }
+        if self.skills.tools:
+            payload['tools'] = openai_tools(self.skills.tools)
+        return self.post(self.url + '/chat/completions', payload, self._auth)

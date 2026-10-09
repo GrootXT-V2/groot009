@@ -1,6 +1,7 @@
 """Things Groot can do. Each skill is a plain function plus a tool schema for Claude."""
 
 import json
+import re
 import threading
 import time
 import urllib.parse
@@ -75,6 +76,22 @@ class Skills:
         if answer in NO_WORDS or answer.startswith(("no ", "don't ", "cancel ")):
             return "Okay, I cancelled it."
         return None  # something else: the action is dropped and we carry on normally
+
+    def prepare_slack_greeting(self, text):
+        """Parse a direct greeting request without asking the model to rewrite it."""
+        match = re.fullmatch(
+            r"(?:please\s+)?(?:say|send)\s+(hi|hello|hey|good morning|good evening)"
+            r"\s+to\s+([\w][\w .@#-]*?)(?:\s+on slack)?[.!?]*",
+            text.strip(), flags=re.I)
+        if not match:
+            return None
+        body, recipient = match.groups()
+        recipient = recipient.strip().rstrip('.')
+        for owner, tools in self.integrations:
+            if any(tool['name'] == 'slack_send' for tool in tools):
+                owner.slack_send(to=recipient, text=body)
+                return f'Send "{body}" to {recipient} on Slack? Say yes or no.'
+        return None
 
     # ---- skills -------------------------------------------------------------
 

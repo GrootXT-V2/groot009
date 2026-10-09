@@ -312,7 +312,7 @@ SLACK_TOOLS = [
      "input_schema": {"type": "object", "properties": {"query": {"type": "string"},
                                                        "count": {"type": "integer"}}, "required": ["query"]}},
     {"name": "slack_send", "description": "Send a Slack message to a channel or person. The user must confirm before it is sent.",
-     "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "text": {"type": "string"}},
+     "input_schema": {"type": "object", "properties": {"to": {"type": "string", "description": "Recipient name or channel only."}, "text": {"type": "string", "description": "Only the message the recipient should receive, not the user's instruction. For 'send hi to Sajib Pal', use text='hi' and to='Sajib Pal'. Preserve explicitly quoted message text verbatim."}},
                       "required": ["to", "text"]}},
 ]
 

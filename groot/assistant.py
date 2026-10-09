@@ -40,6 +40,16 @@ class Assistant:
         if confirmed is not None:  # the user answered yes/no to sending something
             self.speak(confirmed)
             return True
+        prepare_greeting = getattr(skills, "prepare_slack_greeting", None)
+        memory = getattr(skills, 'memory', None)
+        identity = memory.answer_identity(text) if memory is not None else None
+        if identity is not None:
+            self.speak(identity)
+            return True
+        greeting = prepare_greeting(text) if prepare_greeting else None
+        if greeting is not None:
+            self.speak(greeting)
+            return True
         try:
             answer = self.brain.reply(text)
         except Exception as exc:

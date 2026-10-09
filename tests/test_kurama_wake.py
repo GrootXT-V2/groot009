@@ -19,11 +19,11 @@ class KuramaWakeTests(unittest.TestCase):
             self.assertIsNone(find_wake_word(phrase, "Kurama"))
 
     def test_fox_wake_phrase_keeps_kurama_name(self):
-        for phrase in ("hay fox", "Hey Fox!", "hai fox", "hy fox", "hi fox", "I Fox"):
+        for phrase in ("Fox", "hay fox", "Hey Fox!", "hai fox", "hy fox", "hi fox", "I Fox"):
             self.assertEqual(find_wake_word(phrase, "Kurama"), "")
             self.assertEqual(find_wake_word(phrase + " what time is it", "Kurama"), "what time is it")
             self.assertTrue(is_stop_command(phrase + " stop", "Kurama"))
-        for phrase in ("I saw a fox", "hey foxes", "hey foxtrot", "fox news", "hy", "hey"):
+        for phrase in ("I saw a fox", "hey foxes", "hey foxtrot", "the fox news", "hy", "hey"):
             self.assertIsNone(find_wake_word(phrase, "Kurama"))
 
     def test_clipped_greeting_wakes_and_speaks(self):
@@ -79,6 +79,25 @@ class KuramaWakeTests(unittest.TestCase):
         with patch('groot.gui.time.monotonic', return_value=100):
             session._handle("hay fox")
             self.assertIn(said[-1], WAKE_REPLIES[0])
+
+    def test_short_fox_transcriptions_are_bounded(self):
+        for text in ("Vlogs.", "Hello, folks.", "Folks", "foks"):
+            self.assertEqual(find_wake_word(text, "Kurama"), "")
+        for text in ("watch my vlogs", "hello folks how are you", "those folks are here", "vlogs about foxes"):
+            self.assertIsNone(find_wake_word(text, "Kurama"))
+        self.assertIsNone(find_wake_word("vlogs", "Groot"))
+
+    def test_more_names_and_direct_commands(self):
+        for phrase in ("hey kurama", "Hi Foxy!", "hello foxy", "Wake up Kurama",
+                       "wake up fox", "Nine-Tails", "9 talls", "nine tales", "yo foxy"):
+            self.assertEqual(find_wake_word(phrase, "Kurama"), "", phrase)
+        for phrase in ("9 talls are you ready", "nine tails are you ready", "hey nine tails are you ready"):
+            self.assertEqual(find_wake_word(phrase, "Kurama"), "are you ready")
+        self.assertEqual(find_wake_word("Hi Foxy, open Claude", "Kurama"), "open claude")
+        self.assertTrue(is_stop_command("Foxy, you can sleep now", "Kurama"))
+        for phrase in ("I watched nine tails yesterday", "my foxy friend", "foxyish", "9 tailspin"):
+            self.assertIsNone(find_wake_word(phrase, "Kurama"), phrase)
+        self.assertIsNone(find_wake_word("hi foxy", "Groot"))
 
     def test_stop_with_new_name(self):
         for phrase in ("stop", "hay Kurama stop", "Hey Kurama, stop please", "you can stop Kurama"):

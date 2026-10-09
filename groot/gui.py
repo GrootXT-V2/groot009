@@ -1,6 +1,6 @@
 """Groot the desktop robot.
 
-The fox sleeps in a corner. Say "Hey Fox" (or click it) to talk, then say
+The fox sleeps in a corner. Say "Fox" (or click it) to talk, then say
 "stop" to send it walking to the opposite corner for another nap.
 
 Run with:  python -m groot --gui
@@ -38,7 +38,7 @@ def _sounds_like_groot(word: str) -> bool:
 
 
 def _clean(text: str) -> str:
-    return " ".join(re.sub(r"[^\w\s']", " ", text.lower()).split())
+    return " ".join(re.sub(r"[^\w\s'\u0980-\u09ff]", " ", text.lower()).split())
 
 
 def is_stop_command(text: str, name: str = "Groot") -> bool:
@@ -67,8 +67,18 @@ def find_wake_word(text: str, name: str = "Groot"):
         return None
     # The wake phrase is independent of Kurama's display/personality name.
     if name_words == ["kurama"]:
+        # Match complete names at the start, not mentions in ordinary chatter.
+        call = re.match(
+            r"^(?:(?:hey|hay|hi|hello|yo|okay|ok|হেই|হে|হাই|হ্যালো)\s+|wake up\s+)?"
+            r"(?:kurama|foxy|fox|কুরামা|ফক্স|ফক্সি|(?:nine|9)\s*(?:tails|talls|tales))(?=\s|$)",
+            " ".join(words))
+        if call:
+            return " ".join(words)[call.end():].strip()
         # The greeting may be clipped or transcribed as a separate phrase.
-        if words in (["fox"], ["hypox"]):
+        if words[:1] == ["fox"]:
+            return " ".join(words[1:])
+        # Observed short wake transcriptions; only whole utterances qualify.
+        if words in (["hypox"], ["vlogs"], ["folks"], ["foks"], ["hello", "folks"]):
             return ""
         for i in range(min(3, len(words) - 1)):
             if words[i] in {"hay", "hey", "hai", "hy", "hi", "i"} and words[i + 1] == "fox":
@@ -92,6 +102,17 @@ def find_wake_word(text: str, name: str = "Groot"):
     return None
 
 
+def wake_command(text, name):
+    command = find_wake_word(text, name)
+    # Repeated calls in one recording are one greeting, not a question for the AI.
+    while command:
+        rest = find_wake_word(command, name)
+        if rest is None or rest == command:
+            break
+        command = rest
+    return command
+
+
 WAKE_REPLIES = (
     ("I'm here. What's on your mind?", "You have my attention. Go on.",
      "What do you need?", "All right, I'm listening."),
@@ -107,13 +128,14 @@ class Session:
     has a conversation (listen -> think -> speak) until told to stop."""
 
     def __init__(self, brain, speaker, listen, on_state, on_text, name="Groot", groot_mode=False,
-                 on_stop=None):
+                 on_stop=None, on_emotion=None):
         self.brain = brain
         self.speaker = speaker
         self.listen = listen
         self.on_state = on_state
         self.on_text = on_text
         self.on_stop = on_stop
+        self.on_emotion = on_emotion or (lambda mood: None)
         self.name = name
         self.groot_mode = groot_mode  # only say "I am Groot" out loud; show the real answer
         self._awake = threading.Event()
@@ -178,7 +200,7 @@ class Session:
         heard = self.listen(timeout=2)
         if self._awake.is_set() or not heard:
             return
-        command = find_wake_word(heard, self.name)
+        command = wake_command(heard, self.name)
         # Shown in Terminal so you can see what the microphone picked up
         print(f"[heard] {heard}" + ("  -> waking up!" if command is not None else ""), flush=True)
         if command is not None:
@@ -201,7 +223,7 @@ class Session:
         self.on_state("waiting")
         self.on_text("Listening...")
         heard = self.listen(timeout=2)
-        if heard and self._awake.is_set():
+        if heard and heard.strip() and self._awake.is_set():
             self._handle(heard)
         elif self.active and time.monotonic() - self._last_activity >= 120:
             self.stop()
@@ -209,7 +231,6 @@ class Session:
     def speech_started(self) -> None:
         """Sit as soon as the microphone detects speech, before transcription."""
         if self.active:
-            self._last_activity = time.monotonic()
             self.on_state("listening")
 
     def _answer_call(self) -> None:
@@ -218,6 +239,7 @@ class Session:
             self._empty_calls = 0
         self._last_call_at = now
         self._empty_calls += 1
+        self.on_emotion("annoyed" if self._empty_calls >= 3 else "curious")
         replies = WAKE_REPLIES[min(self._empty_calls - 1, 2)]
         choices = [line for line in replies if line not in self._recent_wake_replies[-3:]]
         reply = random.choice(choices)
@@ -226,9 +248,10 @@ class Session:
 
     def _handle(self, heard: str) -> None:
         self.speech_started()
+        self._last_activity = time.monotonic()
         self.on_text(f"You: {heard}")
         if self.name.lower() == "kurama":
-            command = find_wake_word(heard, self.name)
+            command = wake_command(heard, self.name)
             if command == "":
                 self._answer_call()
                 return
@@ -241,16 +264,34 @@ class Session:
         # A real request ends the teasing; stop alone preserves repeated-wake history.
         self._empty_calls = 0
         self._last_call_at = None
+        words = set(_clean(heard).split())
+        if words & {"sad", "upset", "worried", "lonely", "scared", "hurt"}:
+            self.on_emotion("concerned")
+        elif words & {"thanks", "thank", "happy", "great", "finished"}:
+            self.on_emotion("happy")
+        else:
+            self.on_emotion("focused")
         skills = getattr(self.brain, "skills", None)
         confirmed = skills.handle_confirmation(heard) if skills is not None else None
         if confirmed is not None:  # the user answered yes/no to sending something
             self._say(confirmed)
+            return
+        prepare_greeting = getattr(skills, "prepare_slack_greeting", None)
+        memory = getattr(skills, 'memory', None)
+        identity = memory.answer_identity(heard) if memory is not None else None
+        if identity is not None:
+            self._say(identity)
+            return
+        greeting = prepare_greeting(heard) if prepare_greeting else None
+        if greeting is not None:
+            self._say(greeting)
             return
         self.on_state("thinking")
         try:
             answer = self.brain.reply(heard)
         except Exception as exc:
             print(f"[error: {exc}]")
+            self.on_emotion("concerned")
             answer = "Sorry, something went wrong. Please try again."
         self._say(answer)
 
@@ -374,14 +415,17 @@ def run_gui(config, brain_kind: str) -> None:
             ears = Listener(engine=config.stt_engine, whisper_model=config.whisper_model)
             session = Session(brain, speaker, lambda timeout=None: ears.listen(timeout=timeout),
                               robot.set_state, robot.set_text, name=config.name,
-                              groot_mode=config.i_am_groot, on_stop=robot.end_conversation)
+                              groot_mode=config.i_am_groot, on_stop=robot.end_conversation,
+                              on_emotion=robot.set_emotion)
             robot.set_session(session)
             ears.on_speech_start = session.speech_started
+            ears.speaker = speaker
             if config.read_notifications and sys.platform == "darwin":
                 robot.set_watcher(start_notification_watcher(session, speaker, robot))
             robot.set_state("idle")
-            wake_phrase = "Hey Fox" if config.name.lower() == "kurama" else f"Hey {config.name}"
-            robot.set_text(f'Say "{wake_phrase}" or click me!', seconds=6)
+            wake_phrase = "Fox" if config.name.lower() == "kurama" else f"Hey {config.name}"
+            robot.set_text('Say "Fox", "Hey Kurama" or "Hi Foxy"!' if config.name.lower() == "kurama"
+                           else f'Say "{wake_phrase}" or click me!', seconds=6)
             session.launch()
             print(f'{config.name} is ready. Say "{wake_phrase}" or click the fox; right-click it to quit.')
         except Exception as exc:

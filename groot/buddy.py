@@ -310,6 +310,8 @@ class Buddy:
         self.session = None
         self.watcher = None  # reads new notifications aloud (Mac)
         self.state = "loading"
+        self.emotion = "calm"
+        self.emotion_until = 0.0
         self.caption = "Getting ready..."
         self.caption_until = float("inf")
         self.events = queue.Queue()
@@ -454,6 +456,18 @@ class Buddy:
         a = self.area
         self.x = min(max(self.x, a.left), a.right - self.W)
         self.y = min(max(self.y, a.top), self.floor)
+
+    def set_emotion(self, emotion, seconds=8):
+        if emotion in ("calm", "curious", "focused", "happy", "concerned", "annoyed"):
+            self.events.put(("emotion", (emotion, seconds)))
+
+    def _fox_emotion(self, now):
+        if self.state in ("idle", "loading"):
+            return "calm"
+        if now < self.emotion_until:
+            return self.emotion
+        return {"listening": "curious", "thinking": "focused",
+                "error": "concerned"}.get(self.state, "calm")
 
     def _fox_corner_x(self, side):
         left = float(self.area.left)
@@ -602,6 +616,11 @@ class Buddy:
             kind, value = self.events.get()
             if kind == "state":
                 self.state = value
+                if value == "idle":
+                    self.emotion_until = 0.0
+            elif kind == "emotion":
+                self.emotion, seconds = value
+                self.emotion_until = time.monotonic() + seconds
             elif kind == "text":
                 text, seconds = value
                 self.caption = text
@@ -863,7 +882,21 @@ class Buddy:
         drawn = c.sprite(str(path), frame, 4, 4, CX - size / 2,
                          ground - size * FOX_SPRITE_GROUNDS[frame], size, size)
         c.restore()
+        if drawn:
+            self._draw_fox_emotion(c, now)
         return drawn
+
+    def _draw_fox_emotion(self, c, now):
+        mood = self._fox_emotion(now)
+        # Small expressive marks; keep the registered body completely still.
+        marks = {"curious": ("?", "#e4b955"), "focused": ("...", "#8fb0d6"),
+                 "happy": ("♥", "#df7979"), "concerned": ("!", "#82b9d2"),
+                 "annoyed": ("!", "#d84a39")}
+        if mood not in marks:
+            return
+        mark, color = marks[mood]
+        x = 170 if self.face_right else 57
+        c.text(x, 99 + 1.5 * math.sin(self.t * 2), mark, 21, color, bold=True)
 
     def _fox_curled_up(self, now):
         """Sleep only on the floor in the selected corner, until called."""

@@ -26,6 +26,9 @@ class Config:
     # else free local Ollama
     brain: str = field(default_factory=lambda: os.getenv("GROOT_BRAIN", "auto").lower())
     model: str = field(default_factory=lambda: os.getenv("GROOT_MODEL", "claude-sonnet-5-5"))
+    gemini_model: str = field(default_factory=lambda: os.getenv("GROOT_GEMINI_MODEL", "gemini-3.5-flash-lite"))
+    openrouter_model: str = field(default_factory=lambda: os.getenv(
+        "GROOT_OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning"))
     groq_model: str = field(
         default_factory=lambda: os.getenv("GROOT_GROQ_MODEL", "")
     )
@@ -36,7 +39,7 @@ class Config:
     wake_words: tuple = field(
         default_factory=lambda: tuple(
             w.strip().lower()
-            for w in os.getenv("GROOT_WAKE_WORDS", "hay kurama,hey kurama,kurama").split(",")
+            for w in os.getenv("GROOT_WAKE_WORDS", "fox,hay fox,hey fox,foxy,hi foxy,hey foxy,hello foxy,kurama,hey kurama,hi kurama,hello kurama,nine tails,9 tails,9 talls,nine tales,wake up kurama,wake up fox").split(",")
             if w.strip()
         )
     )
