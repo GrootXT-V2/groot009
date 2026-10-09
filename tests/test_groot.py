@@ -140,8 +140,70 @@ def test_mac_speaker_uses_say_every_time(monkeypatch):
     ran = []
     monkeypatch.setattr(voice.sys, "platform", "darwin")
     monkeypatch.setattr(voice.shutil, "which", lambda name: "/usr/bin/say")
-    monkeypatch.setattr(voice.subprocess, "run", lambda cmd, check: ran.append(cmd))
+    class FakeProcess:
+        def __init__(self, cmd):
+            ran.append(cmd)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
     speaker = voice.Speaker(rate=200, voice="Samantha")
     for text in ["one", "two", "three"]:
         speaker.say(text)
     assert ran == [["say", "-r", "200", "-v", "Samantha", t] for t in ["one", "two", "three"]]
+
+
+def test_stop_commands():
+    from groot.gui import is_stop_command
+
+    for text in ["stop", "Stop.", "Groot, stop!", "stop talking please", "That's all", "goodbye"]:
+        assert is_stop_command(text), text
+    for text in ["what's the weather", "don't stop the music", "tell me about bus stops"]:
+        assert not is_stop_command(text), text
+
+
+def _run_session(heard_items):
+    import threading
+    from groot.gui import Session
+
+    heard = iter(heard_items)
+    said, states, done = [], [], threading.Event()
+
+    class FakeSpeaker:
+        def say(self, text):
+            said.append(text)
+
+        def stop(self):
+            pass
+
+    def listen(timeout=None):
+        try:
+            return next(heard)
+        except StopIteration:
+            done.set()
+            return ""
+
+    brain = SimpleNamespace(reply=lambda text: f"echo: {text}")
+    session = Session(brain, FakeSpeaker(), listen, states.append, lambda text: None)
+    session.start()
+    return session, said, states, done
+
+
+def test_session_talks_until_user_says_stop():
+    session, said, states, _ = _run_session(["", "hello", "stop", "never heard"])
+    for _ in range(100):
+        if not session.active:
+            break
+        import time; time.sleep(0.01)
+    assert not session.active
+    assert said == ["Hi! I'm listening.", "echo: hello", "Okay, talk to you later."]
+    assert states[-1] == "idle"
+
+
+def test_session_stops_when_clicked_again():
+    session, said, states, done = _run_session([])
+    assert done.wait(1)
+    session.toggle()  # second click
+    assert not session.active
+    assert states[-1] == "idle"

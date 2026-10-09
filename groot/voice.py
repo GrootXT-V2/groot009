@@ -14,6 +14,7 @@ class Speaker:
         # On macOS, pyttsx3 often goes silent after a couple of sentences,
         # so use the built-in `say` command there instead.
         self.use_mac_say = sys.platform == "darwin" and shutil.which("say") is not None
+        self._process = None
         if not self.use_mac_say:
             import pyttsx3
 
@@ -25,7 +26,9 @@ class Speaker:
                 command = ["say", "-r", str(self.rate)]
                 if self.voice:
                     command += ["-v", self.voice]
-                subprocess.run(command + [text], check=False)
+                self._process = subprocess.Popen(command + [text])
+                self._process.wait()
+                self._process = None
                 return
             # A fresh engine each time avoids pyttsx3 getting stuck after the first reply
             engine = self.pyttsx3.init()
@@ -33,6 +36,12 @@ class Speaker:
             engine.say(text)
             engine.runAndWait()
             engine.stop()
+
+    def stop(self) -> None:
+        """Cut off whatever is being said right now (Mac only)."""
+        process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
 
 
 class Listener:
@@ -44,13 +53,14 @@ class Listener:
         self.whisper_model = whisper_model
         self.recognizer = sr.Recognizer()
         self.recognizer.dynamic_energy_threshold = True
+        self._mic_lock = threading.Lock()  # only one listener at a time
         self.microphone = sr.Microphone()
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
 
     def listen(self, timeout: float = None, phrase_limit: float = 15) -> str:
         """Record one phrase and return it as text ('' if nothing understood)."""
-        with self.microphone as source:
+        with self._mic_lock, self.microphone as source:
             try:
                 audio = self.recognizer.listen(
                     source, timeout=timeout, phrase_time_limit=phrase_limit

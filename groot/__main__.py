@@ -29,28 +29,59 @@ def check_ollama(config: Config) -> None:
         sys.exit(f"The model '{wanted}' isn't downloaded yet. Run: ollama pull {wanted}")
 
 
+def choose_brain_kind(config: Config) -> str:
+    """Work out which brain to use and exit with help if it isn't set up."""
+    kind = config.brain
+    if kind == "auto":
+        if os.getenv("ANTHROPIC_API_KEY"):
+            kind = "claude"
+        elif os.getenv("GROQ_API_KEY"):
+            kind = "groq"
+        else:
+            kind = "ollama"
+    if kind == "claude" and not os.getenv("ANTHROPIC_API_KEY"):
+        sys.exit("ANTHROPIC_API_KEY is not set. Add it to .env, or set GROOT_BRAIN=ollama to use the free local brain.")
+    if kind == "groq" and not os.getenv("GROQ_API_KEY"):
+        sys.exit("GROQ_API_KEY is not set. Get a free key at https://console.groq.com/keys and add it to .env.")
+    if kind == "ollama":
+        check_ollama(config)
+    return kind
+
+
+def make_brain(config: Config, kind: str, skills: Skills):
+    if kind == "ollama":
+        print(f"Using free local brain: Ollama ({config.ollama_model}). Loading model...")
+        brain = OllamaBrain(config.ollama_model, skills, name=config.name, city=config.city,
+                            url=config.ollama_url)
+        brain.warm_up()
+        return brain
+    if kind == "groq":
+        print(f"Using free fast cloud brain: Groq ({config.groq_model or 'auto model'})")
+        return GroqBrain(os.environ["GROQ_API_KEY"], config.groq_model, skills,
+                         name=config.name, city=config.city)
+    import anthropic
+
+    print(f"Using Claude ({config.model})")
+    return Brain(anthropic.Anthropic(), config.model, skills, name=config.name, city=config.city)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Groot, your personal voice assistant")
+    parser.add_argument("--gui", action="store_true", help="show a floating Groot button: click to talk, click again to stop")
     parser.add_argument("--text", action="store_true", help="type instead of talking (no microphone needed)")
     parser.add_argument("--mute", action="store_true", help="print replies instead of speaking them")
     parser.add_argument("--no-wake", action="store_true", help="don't require the wake word")
     args = parser.parse_args()
 
     config = Config()
-    brain_kind = config.brain
-    if brain_kind == "auto":
-        if os.getenv("ANTHROPIC_API_KEY"):
-            brain_kind = "claude"
-        elif os.getenv("GROQ_API_KEY"):
-            brain_kind = "groq"
-        else:
-            brain_kind = "ollama"
-    if brain_kind == "claude" and not os.getenv("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY is not set. Add it to .env, or set GROOT_BRAIN=ollama to use the free local brain.")
-    if brain_kind == "groq" and not os.getenv("GROQ_API_KEY"):
-        sys.exit("GROQ_API_KEY is not set. Get a free key at https://console.groq.com/keys and add it to .env.")
-    if brain_kind == "ollama":
-        check_ollama(config)
+    brain_kind = choose_brain_kind(config)
+
+    if args.gui:
+        from .gui import run_gui
+
+        run_gui(config, brain_kind)
+        return
+
     if args.no_wake or args.text:
         config.use_wake_word = False
 
@@ -82,20 +113,7 @@ def main() -> None:
             return ears.listen(timeout=timeout)
 
     skills = Skills(config.data_dir, default_city=config.city, announce=speak)
-    if brain_kind == "ollama":
-        print(f"Using free local brain: Ollama ({config.ollama_model}). Loading model...")
-        brain = OllamaBrain(config.ollama_model, skills, name=config.name, city=config.city,
-                            url=config.ollama_url)
-        brain.warm_up()
-    elif brain_kind == "groq":
-        print(f"Using free fast cloud brain: Groq ({config.groq_model or 'auto model'})")
-        brain = GroqBrain(os.environ["GROQ_API_KEY"], config.groq_model, skills,
-                          name=config.name, city=config.city)
-    else:
-        import anthropic
-
-        print(f"Using Claude ({config.model})")
-        brain = Brain(anthropic.Anthropic(), config.model, skills, name=config.name, city=config.city)
+    brain = make_brain(config, brain_kind, skills)
 
     try:
         Assistant(config, brain, speak, listen, echo=not args.text).run()

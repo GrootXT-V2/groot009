@@ -69,6 +69,25 @@ Things to try:
 - "Hey Groot, new conversation" — forgets the chat so far
 - "Hey Groot, goodbye" — quits (or press Ctrl+C)
 
+## Floating bubble (Mac) 🌱
+
+```bash
+python -m groot --gui
+```
+
+Or just **double-click `Groot.command`** in Finder. The first time, macOS may
+block it: right-click it → **Open** → **Open**.
+
+A little Groot bubble appears in the corner of your screen, on top of other windows:
+
+- **Click it** → Groot says hi and listens. Just talk — no wake word needed.
+- **Say "stop"** (or "that's all", "goodbye") or **click it again** → Groot stops, even mid-sentence.
+- **Drag it** to move it. **Right-click** (or Ctrl+click) → Quit.
+- Colors: ⚪ sleeping · 🟢 listening · 🟡 thinking · 🔵 talking
+
+If it says it needs Tkinter: `brew install python-tk`, then delete the `.venv`
+folder and set it up again.
+
 ## Settings (`.env`)
 
 | Variable | Default | What it does |
