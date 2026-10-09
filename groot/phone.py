@@ -20,7 +20,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .buddy import Area, Buddy, Canvas, rgba
 
@@ -356,6 +356,11 @@ def lan_address() -> str:
         return "localhost"
 
 
+def app_link(server, key):
+    """A link that opens the Kurama iPhone app and connects it to this computer."""
+    return f"kurama://connect?server={quote(server, safe='')}&k={quote(key, safe='')}"
+
+
 def print_link(title, url):
     print(f"\n{title}\n  {url}")
     try:
@@ -405,11 +410,14 @@ def run_phone(config, brain_kind: str) -> None:
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     print(f"\n{config.name} for your phone is running! Keep this window open.")
-    print_link("On the same Wi-Fi, open this on your phone (typing works; for talking use the https link):",
-               f"http://{lan_address()}:{PORT}/?k={key}")
+    lan = f"http://{lan_address()}:{PORT}"
+    print_link("iPhone app (Kurama): scan this with the iPhone camera to connect the app (same Wi-Fi):",
+               app_link(lan, key))
+    print_link("Web version, on the same Wi-Fi (typing works; for talking use the https link):", f"{lan}/?k={key}")
     tunnel = start_tunnel(PORT)
     if tunnel:
-        print_link("Secure link that works anywhere, with the microphone (scan this one):", f"{tunnel}/?k={key}")
+        print_link("iPhone app, anywhere (not just home Wi-Fi):", app_link(tunnel, key))
+        print_link("Web version, anywhere, with the microphone:", f"{tunnel}/?k={key}")
     else:
         print("\nFor talking with the microphone (and using it away from home), install the free tunnel:\n"
               "  brew install cloudflared\nthen start this again: it will print a secure https link.")

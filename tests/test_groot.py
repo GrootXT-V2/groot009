@@ -998,3 +998,14 @@ def test_phone_home_screen_icon_and_name(tmp_path):
         assert b"<title>Kurama</title>" in _request(base + "/", key=None)[1]
     finally:
         server.shutdown()
+
+
+def test_iphone_app_link():
+    from urllib.parse import parse_qs, urlparse
+    from groot.phone import app_link
+
+    link = app_link("http://192.168.1.20:8765", "abc-DEF_123")
+    parts = urlparse(link)
+    assert parts.scheme == "kurama" and parts.netloc == "connect"
+    query = parse_qs(parts.query)
+    assert query["server"] == ["http://192.168.1.20:8765"] and query["k"] == ["abc-DEF_123"]

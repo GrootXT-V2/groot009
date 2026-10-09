@@ -125,6 +125,12 @@ like an app.
 - The link contains a secret key (saved in `~/.groot/phone_key`), so only you can
   use it. Keep it private; delete that file to make a new key.
 
+### iPhone app
+
+There's also a real iPhone app (same fox, sleeping/waking/walking routine, and a
+home-screen widget) in the [`ios`](ios/README.md) folder. See
+[ios/README.md](ios/README.md) to install it with Xcode.
+
 ## Your apps, email and Slack (Mac)
 
 Groot can use your Mac apps. Just ask:
