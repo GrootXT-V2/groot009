@@ -953,7 +953,27 @@ def test_phone_frames_record_the_same_drawing():
 
     data = build_frames("fox")
     assert set(data["anims"]) >= {"idle", "walk", "listening", "thinking", "speaking", "sleep", "dance"}
-    first = data["anims"]["idle"][0]
-    kinds = {op[0] for op in first}
-    assert {"S", "R", "P", "G"} <= kinds  # shapes and gradients, replayed by the phone's browser
+    kinds = {op[0] for op in data["anims"]["idle"][0]}
+    assert {"S", "R"} <= kinds and kinds & {"P", "G", "I"}  # shapes, gradients or pictures
     assert all(len(frames) > 5 for frames in data["anims"].values())
+    # the picture-based fox: the phone draws the same sprite cells, and sleeps curled up
+    pictures = {op[1] for frames in data["anims"].values() for ops in frames for op in ops if op[0] == "I"}
+    from groot.phone import ASSETS
+    if (ASSETS / "red-white-serious-fox.png").is_file():
+        assert "red-white-serious-fox.png" in pictures
+        assert any(op[1] == "red-white-fox-sleeping.png" for op in data["anims"]["sleep"][0] if op[0] == "I")
+    # the drawn styles still record vector shapes
+    robot = build_frames("robot")["anims"]["idle"][0]
+    assert {"P"} <= {op[0] for op in robot}
+
+
+def test_phone_serves_only_fox_pictures(tmp_path):
+    server, base, _ = _phone_server(tmp_path)
+    try:
+        status, body = _request(base + "/api/asset/red-white-serious-fox.png")
+        assert status == 200 and body[:4] == b"\x89PNG"
+        assert _request(base + "/api/asset/red-white-serious-fox.png", key=None)[0] == 401
+        assert _request(base + "/api/asset/..%2F..%2Fphone.py")[0] == 404
+        assert _request(base + "/api/asset/red-white-serious-fox.json")[0] == 404
+    finally:
+        server.shutdown()

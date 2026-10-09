@@ -124,6 +124,19 @@
   }
 
   // ---- drawing: replay the drawing commands recorded on the computer
+  const images = {};  // sprite sheets used by the fox, downloaded once
+  function loadImages() {
+    const names = new Set();
+    for (const frames of Object.values(data.anims))
+      for (const ops of frames) for (const op of ops) if (op[0] === "I") names.add(op[1]);
+    return Promise.all([...names].map((name) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = img.onerror = resolve;
+      img.src = `/api/asset/${encodeURIComponent(name)}?k=${encodeURIComponent(key)}`;
+      images[name] = img;
+    })));
+  }
+
   const paths = new Map();
   function path(d) {
     let p = paths.get(d);
@@ -152,6 +165,16 @@
           for (const [pos, color] of op[6]) g.addColorStop(pos, color);
           ctx.fillStyle = g; ctx.fill(p);
           if (op[7]) { ctx.strokeStyle = op[7]; ctx.lineWidth = op[8]; ctx.stroke(p); }
+          break;
+        }
+        case "I": {  // one cell of a sprite sheet
+          const img = images[op[1]];
+          if (!img || !img.complete || !img.naturalWidth) break;
+          const cw = img.naturalWidth / op[3], ch = img.naturalHeight / op[4];
+          const alpha = ctx.globalAlpha;
+          ctx.globalAlpha = alpha * op[9];
+          ctx.drawImage(img, (op[2] % op[3]) * cw, Math.floor(op[2] / op[3]) * ch, cw, ch, op[5], op[6], op[7], op[8]);
+          ctx.globalAlpha = alpha;
           break;
         }
         case "X":
@@ -327,6 +350,7 @@
         : "Can't reach Groot on your computer. Make sure it's running (python -m groot --phone) and try again.") +
         "</p></div>");
     }
+    await loadImages();
     layout();
     window.addEventListener("resize", layout);
     if (!canListen) $("hint").textContent = window.isSecureContext

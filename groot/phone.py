@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 from .buddy import Area, Buddy, Canvas, rgba
 
 APP_PAGE = Path(__file__).with_name("phone_app.html")
+ASSETS = Path(__file__).with_name("assets")  # the fox's pictures (sprite sheets)
 PORT = 8765
 
 
@@ -97,6 +98,14 @@ class RecordingCanvas(Canvas):
     def text_box(self, x, y, w, h, text, size, color):
         pass  # the phone shows speech in its own chat bubbles
 
+    def sprite(self, path, frame, columns, rows, x, y, w, h, opacity=1.0):
+        """One cell of a picture from groot/assets; the phone downloads the picture once."""
+        path = Path(path)
+        if path.parent.resolve() != ASSETS.resolve() or not path.is_file():
+            return False
+        self.ops.append(["I", path.name, frame, columns, rows, _n(x), _n(y), _n(w), _n(h), round(opacity, 2)])
+        return True
+
 
 def _frames(buddy, count, setup, every=1):
     """Run the buddy for `count` frames after `setup`, recording each drawing."""
@@ -121,11 +130,19 @@ def build_frames(style="fox"):
         buddy.next_blink = float("inf")
         return buddy
 
-    def pose(state, action="look", blink_at=None):
+    def pose(state, action="look", blink_at=None, fox_mode="awake"):
         def setup(buddy, base):
             buddy.state = state
             buddy.action = {"name": action, "start": base, "until": base + 1e6, "target": 0.0}
             buddy.next_blink = base + blink_at if blink_at is not None else float("inf")
+            if hasattr(buddy, "_fox_mode"):  # the picture-based fox has its own routine
+                if fox_mode == "sleep":  # curled up in its corner
+                    buddy._fox_corner = "right"
+                    buddy.x = buddy._fox_corner_x("right")
+                elif fox_mode == "return":  # trotting toward the far corner
+                    buddy._fox_destination = "left"
+                    buddy._fox_departure = buddy.t - 1.0
+                buddy._fox_mode = fox_mode
         return setup
 
     def activity(name):
@@ -138,8 +155,8 @@ def build_frames(style="fox"):
     walk_frames = int(round(2 * 3.14159 / (1.6 * 0.12))) + 1  # one full step cycle
     anims = {
         "idle": _frames(make(), 60, pose("idle", "look", blink_at=1.5), every=2),
-        "sleep": _frames(make(), 30, pose("idle", "rest"), every=2),
-        "walk": _frames(make(), walk_frames, pose("idle", "walk")),
+        "sleep": _frames(make(), 30, pose("idle", "rest", fox_mode="sleep"), every=2),
+        "walk": _frames(make(), walk_frames, pose("idle", "walk", fox_mode="return")),
         "listening": _frames(make(), 30, pose("listening", "rest", blink_at=0.6), every=2),
         "thinking": _frames(make(), 40, pose("thinking", "rest"), every=2),
         "speaking": _frames(make(), 24, pose("speaking", "rest"), every=2),
@@ -246,7 +263,8 @@ def make_handler(phone_brain, frames_json_gz, key):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            if "Cache-Control" not in (extra or {}):
+                self.send_header("Cache-Control", "no-store")
             for name, value in (extra or {}).items():
                 self.send_header(name, value)
             self.end_headers()
@@ -274,6 +292,13 @@ def make_handler(phone_brain, frames_json_gz, key):
                 return self._send(401, b'{"error": "wrong or missing key"}')
             if url.path == "/api/frames":
                 return self._send(200, frames_json_gz, "application/json", {"Content-Encoding": "gzip"})
+            if url.path.startswith("/api/asset/"):
+                name = url.path.rsplit("/", 1)[-1]
+                allowed = {p.name: p for p in ASSETS.glob("*.png")} if ASSETS.is_dir() else {}
+                if name not in allowed:
+                    return self._send(404, b"{}")
+                return self._send(200, allowed[name].read_bytes(), "image/png",
+                                  {"Cache-Control": "private, max-age=86400"})
             if url.path.startswith("/api/audio/"):
                 audio = phone_brain.audio.get(url.path.rsplit("/", 1)[-1])
                 if audio is None:
