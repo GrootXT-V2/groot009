@@ -287,7 +287,8 @@ def run_gui(config, brain_kind: str) -> None:
         # so do it in the background while the bubble shows "Getting ready..."
         try:
             speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice,
-                              pitch=config.voice_pitch)
+                              pitch=config.voice_pitch, engine=config.tts,
+                              edge_voice=config.edge_voice, edge_pitch=config.edge_pitch)
 
             def announce(text):  # used by timers
                 bubble.set_text(f"{config.name}: {text}")

@@ -108,6 +108,9 @@ folder and set it up again.
 | `GROOT_STT` | `google` | `google` (free, online) or `whisper` (offline; `pip install openai-whisper`) |
 | `GROOT_WHISPER_MODEL` | `base` | Whisper size: `tiny`, `base`, `small`, `medium` |
 | `GROOT_VOICE_RATE` | `180` | Speaking speed |
+| `GROOT_TTS` | `edge` | `edge` = natural neural voice (free, needs internet), `mac` = built-in Mac voices |
+| `GROOT_EDGE_VOICE` | `en-US-AndrewNeural` | Natural voice (list: `edge-tts --list-voices`) |
+| `GROOT_EDGE_PITCH` | `+20Hz` | Little Groot pitch for the natural voice (`+0Hz` normal) |
 | `GROOT_TREE_VOICE` | `true` | Little Groot voice (Mac). `false` = normal voice |
 | `GROOT_VOICE_PITCH` | `1.25` | Higher = smaller, cuter voice. `1.0` normal, `0.8` big deep Groot |
 | `GROOT_I_AM_GROOT` | `false` | Only say "I am Groot" out loud; show the real answer as text |

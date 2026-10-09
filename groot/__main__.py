@@ -92,7 +92,8 @@ def main() -> None:
         from .voice import Speaker, i_am_groot
 
         speaker = Speaker(rate=config.voice_rate, voice=config.voice, tree_voice=config.tree_voice,
-                              pitch=config.voice_pitch)
+                              pitch=config.voice_pitch, engine=config.tts,
+                              edge_voice=config.edge_voice, edge_pitch=config.edge_pitch)
 
         def speak(text):
             print(f"{config.name}: {text}")

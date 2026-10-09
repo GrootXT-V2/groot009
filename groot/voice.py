@@ -1,12 +1,22 @@
 """Ears (speech-to-text) and mouth (text-to-speech)."""
 
+import asyncio
 import os
+import queue
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import wave
+
+# Natural voice: Microsoft's free neural voices via the edge-tts package (needs internet).
+# Little Groot = a warm young male voice, pitched up a little.
+EDGE_VOICE = "en-US-AndrewNeural"
+EDGE_GROOT_PITCH = "+20Hz"
+EDGE_RATE = "+5%"
 
 # Little Groot voice: a male Mac voice, recorded slowly and then played back
 # higher and faster, so it sounds small and cute. Voices in order of preference.
@@ -37,6 +47,18 @@ def deepen(src: str, dst: str, factor: float = GROOT_PITCH) -> None:
         writer.writeframes(frames)
 
 
+def split_sentences(text: str, min_length: int = 25) -> list:
+    """Split text into sentences, joining very short ones, so speech can start sooner."""
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", text.strip()) if p.strip()]
+    merged = []
+    for part in parts:
+        if merged and len(merged[-1]) < min_length:
+            merged[-1] += " " + part
+        else:
+            merged.append(part)
+    return merged
+
+
 def i_am_groot(answer: str) -> str:
     """What Groot says out loud in "I am Groot" mode, matching the answer's mood."""
     text = answer.strip()
@@ -53,7 +75,12 @@ def i_am_groot(answer: str) -> str:
 
 class Speaker:
     def __init__(self, rate: int = 180, voice: str = "", tree_voice: bool = True,
-                 pitch: float = GROOT_PITCH):
+                 pitch: float = GROOT_PITCH, engine: str = "edge", edge_voice: str = EDGE_VOICE,
+                 edge_pitch: str = EDGE_GROOT_PITCH):
+        self.engine = engine  # "edge" (natural, online) or "mac" (built-in voices)
+        self.edge_voice = edge_voice
+        self.edge_pitch = edge_pitch
+        self._edge_down_until = 0.0  # skip edge for a while after a failure (e.g. offline)
         self.rate = rate
         self.pitch = pitch
         self.voice = voice
@@ -73,6 +100,15 @@ class Speaker:
     def say(self, text: str) -> None:
         with self._lock:
             self._stopped = False
+            if self._can_use_edge():
+                try:
+                    self._say_edge(text)
+                    return
+                except Exception as exc:
+                    self._edge_down_until = time.time() + 120
+                    print(f"[natural voice unavailable ({exc}), using Mac voice]")
+                    if self._stopped:
+                        return
             if self.use_mac_say:
                 if self.tree_voice:
                     try:
@@ -91,6 +127,59 @@ class Speaker:
             engine.say(text)
             engine.runAndWait()
             engine.stop()
+
+    def _can_use_edge(self) -> bool:
+        if self.engine != "edge" or time.time() < self._edge_down_until:
+            return False
+        if shutil.which("afplay") is None:  # audio player built into macOS
+            return False
+        try:
+            import edge_tts  # noqa: F401
+        except ImportError:
+            return False
+        return True
+
+    def _say_edge(self, text: str) -> None:
+        """Speak with a natural neural voice, one sentence at a time.
+
+        The next sentence is prepared while the current one plays, so the
+        first words start quickly even for long answers.
+        """
+        import edge_tts
+
+        pitch = self.edge_pitch if self.tree_voice else "+0Hz"
+        sentences = split_sentences(text) or [text]
+        ready = queue.Queue()
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            def prepare():
+                try:
+                    for i, sentence in enumerate(sentences):
+                        if self._stopped:
+                            break
+                        path = os.path.join(folder, f"{i}.mp3")
+                        speech = edge_tts.Communicate(sentence, self.edge_voice, rate=EDGE_RATE, pitch=pitch)
+                        asyncio.run(speech.save(path))
+                        ready.put(path)
+                except Exception as exc:
+                    ready.put(exc)
+                ready.put(None)
+
+            worker = threading.Thread(target=prepare, daemon=True)
+            worker.start()
+            played = 0
+            while True:
+                item = ready.get()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    if played == 0:
+                        raise item  # nothing spoken yet: fall back to the Mac voice
+                    break
+                if not self._stopped:
+                    self._run(["afplay", item])
+                    played += 1
+            worker.join(timeout=10)
 
     def _say_groot(self, text: str) -> None:
         voice = self.voice or self._groot_voice()

@@ -148,7 +148,7 @@ def test_mac_speaker_uses_say_every_time(monkeypatch):
             return 0
 
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
-    speaker = voice.Speaker(rate=200, voice="Samantha", tree_voice=False)
+    speaker = voice.Speaker(rate=200, voice="Samantha", tree_voice=False, engine="mac")
     for text in ["one", "two", "three"]:
         speaker.say(text)
     assert ran == [["say", "-r", "200", "-v", "Samantha", t] for t in ["one", "two", "three"]]
@@ -249,7 +249,7 @@ def test_groot_voice_records_deepens_and_plays(monkeypatch):
     monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
     monkeypatch.setattr(voice, "installed_mac_voices", lambda: {"Samantha", "Fred"})
     monkeypatch.setattr(voice, "deepen", lambda src, dst, factor: deepened.append((src, dst, factor)))
-    speaker = voice.Speaker(rate=180)  # little Groot voice is on by default
+    speaker = voice.Speaker(rate=180, engine="mac")  # little Groot voice is on by default
     speaker.say("I am Groot")
     assert ran[0][:3] == ["say", "-r", "140"] and ran[0][-3:] == ["-v", "Fred", "I am Groot"]
     assert deepened[0][2] == 1.25  # higher, little Groot
@@ -277,3 +277,75 @@ def test_session_groot_mode_speaks_groot_but_shows_answer():
         time.sleep(0.01)
     assert spoken == ["I am Groot!", "I am Groot.", "I am Groot."]
     assert "Groot: It is 3 PM." in shown
+
+
+def test_split_sentences():
+    from groot.voice import split_sentences
+
+    assert split_sentences("Hi! I am Groot. Today is sunny and warm in Dhaka. Have fun!") == [
+        "Hi! I am Groot. Today is sunny and warm in Dhaka.", "Have fun!"]
+    assert split_sentences("Just one sentence") == ["Just one sentence"]
+
+
+def _fake_edge(monkeypatch, voice, fail=False):
+    import sys as _sys
+    import types
+
+    made = []
+
+    class Communicate:
+        def __init__(self, text, voice_name, rate, pitch):
+            made.append((text, voice_name, pitch))
+            self.text = text
+
+        async def save(self, path):
+            if fail:
+                raise OSError("no internet")
+            with open(path, "w") as f:
+                f.write(self.text)
+
+    monkeypatch.setitem(_sys.modules, "edge_tts", types.SimpleNamespace(Communicate=Communicate))
+    monkeypatch.setattr(voice.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(voice.sys, "platform", "darwin")
+    return made
+
+
+def test_natural_voice_speaks_each_sentence(monkeypatch):
+    import groot.voice as voice
+
+    made = _fake_edge(monkeypatch, voice)
+    played = []
+
+    class FakeProcess:
+        def __init__(self, cmd):
+            with open(cmd[1]) as f:
+                played.append((cmd[0], f.read()))
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
+    speaker = voice.Speaker()
+    speaker.say("Hello there my good friend. I am little Groot!")
+    assert played == [("afplay", "Hello there my good friend."), ("afplay", "I am little Groot!")]
+    assert made[0][1:] == ("en-US-AndrewNeural", "+20Hz")
+
+
+def test_natural_voice_falls_back_to_mac_when_offline(monkeypatch):
+    import groot.voice as voice
+
+    _fake_edge(monkeypatch, voice, fail=True)
+    ran = []
+
+    class FakeProcess:
+        def __init__(self, cmd):
+            ran.append(cmd)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(voice.subprocess, "Popen", FakeProcess)
+    speaker = voice.Speaker(tree_voice=False)
+    speaker.say("hello")
+    assert ran == [["say", "-r", "180", "hello"]]
+    assert not speaker._can_use_edge()  # don't retry right away
